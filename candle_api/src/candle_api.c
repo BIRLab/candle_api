@@ -6,13 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <threads.h>
-#include <assert.h>
 
 static const size_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 static struct libusb_context *ctx = NULL;
 static LIST_HEAD(device_list);
-size_t open_devs;
-thrd_t event_thread;
+static size_t open_device_count;
+static thrd_t event_thread;
 static bool event_thread_run;
 
 struct candle_channel_handle {
@@ -44,8 +43,8 @@ static int event_thread_func(void *arg) {
 }
 
 static void after_libusb_open_hook(void) {
-    open_devs++;
-    if (open_devs == 1) {
+    open_device_count++;
+    if (open_device_count == 1) {
         // start event loop
         event_thread_run = true;
         thrd_create(&event_thread, event_thread_func, ctx);
@@ -53,15 +52,15 @@ static void after_libusb_open_hook(void) {
 }
 
 static void before_libusb_close_hook(void) {
-    open_devs--;
-    if (open_devs == 0) {
+    open_device_count--;
+    if (open_device_count == 0) {
         // stop event loop
         event_thread_run = false;
     }
 }
 
 static void after_libusb_close_hook(void) {
-    if (open_devs == 0) {
+    if (open_device_count == 0) {
         // join event loop
         int res;
         thrd_join(event_thread, &res);
@@ -136,6 +135,43 @@ static void free_device(struct candle_device_handle* handle) {
     libusb_unref_device(handle->usb_device);
     free(handle->device);
     free(handle);
+}
+
+static void convert_frame(struct gs_host_frame *hf, struct candle_can_frame *frame, bool hw_timestamp) {
+    frame->type = 0;
+    if (hf->echo_id == 0xFFFFFFFF)
+        frame->type |= CANDLE_FRAME_TYPE_RX;
+    if (hf->can_id & CAN_EFF_FLAG)
+        frame->type |= CANDLE_FRAME_TYPE_EFF;
+    if (hf->can_id & CAN_RTR_FLAG)
+        frame->type |= CANDLE_FRAME_TYPE_RTR;
+    if (hf->can_id & CAN_ERR_FLAG)
+        frame->type |= CANDLE_FRAME_TYPE_ERR;
+    if (hf->flags & GS_CAN_FLAG_FD)
+        frame->type |= CANDLE_FRAME_TYPE_FD;
+    if (hf->flags & GS_CAN_FLAG_BRS)
+        frame->type |= CANDLE_FRAME_TYPE_BRS;
+    if (hf->flags & GS_CAN_FLAG_ESI)
+        frame->type |= CANDLE_FRAME_TYPE_ESI;
+
+    frame->echo_id = hf->echo_id;
+
+    if (hf->can_id & CAN_EFF_FLAG)
+        frame->can_id = hf->can_id & 0x1FFFFFFF;
+    else
+        frame->can_id = hf->can_id & 0x7FF;
+
+    frame->can_dlc = hf->can_dlc;
+
+    if (hf->flags & GS_CAN_FLAG_FD) {
+        memcpy(frame->data, hf->canfd->data, dlc2len[hf->can_dlc]);
+        if (hw_timestamp)
+            frame->timestamp_us = hf->canfd_ts->timestamp_us;
+    } else {
+        memcpy(frame->data, hf->classic_can->data, dlc2len[hf->can_dlc]);
+        if (hw_timestamp)
+            frame->timestamp_us = hf->classic_can_ts->timestamp_us;
+    }
 }
 
 bool candle_initialize(void) {
@@ -770,40 +806,7 @@ bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct 
     if (fifo_get(handle->channels[channel].rx_fifo, hf) < 0)
         return false;
 
-    frame->type = 0;
-    if (hf->echo_id == 0xFFFFFFFF)
-        frame->type |= CANDLE_FRAME_TYPE_RX;
-    if (hf->can_id & CAN_EFF_FLAG)
-        frame->type |= CANDLE_FRAME_TYPE_EFF;
-    if (hf->can_id & CAN_RTR_FLAG)
-        frame->type |= CANDLE_FRAME_TYPE_RTR;
-    if (hf->can_id & CAN_ERR_FLAG)
-        frame->type |= CANDLE_FRAME_TYPE_ERR;
-    if (hf->flags & GS_CAN_FLAG_FD)
-        frame->type |= CANDLE_FRAME_TYPE_FD;
-    if (hf->flags & GS_CAN_FLAG_BRS)
-        frame->type |= CANDLE_FRAME_TYPE_BRS;
-    if (hf->flags & GS_CAN_FLAG_ESI)
-        frame->type |= CANDLE_FRAME_TYPE_ESI;
-
-    frame->echo_id = hf->echo_id;
-
-    if (hf->can_id & CAN_EFF_FLAG)
-        frame->can_id = hf->can_id & 0x1FFFFFFF;
-    else
-        frame->can_id = hf->can_id & 0x7FF;
-
-    frame->can_dlc = hf->can_dlc;
-
-    if (hf->flags & GS_CAN_FLAG_FD) {
-        memcpy(frame->data, hf->canfd->data, dlc2len[hf->can_dlc]);
-        if (handle->channels[channel].mode & CANDLE_MODE_HW_TIMESTAMP)
-            frame->timestamp_us = hf->canfd_ts->timestamp_us;
-    } else {
-        memcpy(frame->data, hf->classic_can->data, dlc2len[hf->can_dlc]);
-        if (handle->channels[channel].mode & CANDLE_MODE_HW_TIMESTAMP)
-            frame->timestamp_us = hf->classic_can_ts->timestamp_us;
-    }
+    convert_frame(hf, frame, handle->channels[channel].mode & CANDLE_MODE_HW_TIMESTAMP);
 
     return true;
 }
@@ -838,15 +841,18 @@ bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t m
 
 bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
     struct candle_device_handle *handle = device->handle;
+    struct gs_host_frame *hf = alloca(handle->rx_size);
 
     MUTEX_LOCK(handle->channels[channel].rx_fifo->mutex);
-    bool empty = fifo_is_empty(handle->channels[channel].rx_fifo);
+    bool empty = fifo_get_noprotect(handle->channels[channel].rx_fifo, hf) < 0;
     if (empty)
         mtx_lock(&handle->channels[channel].rx_cond_mtx);
     MUTEX_UNLOCK(handle->channels[channel].rx_fifo->mutex);
 
-    if (!empty)
+    if (!empty) {
+        convert_frame(hf, frame, handle->channels[channel].mode & CANDLE_MODE_HW_TIMESTAMP);
         return true;
+    }
 
     struct timespec ts;
     timespec_get(&ts, TIME_UTC);
@@ -858,11 +864,10 @@ bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel
         ts.tv_sec += 1;
     }
 
-    bool r = cnd_timedwait(&handle->channels[channel].rx_cnd, &handle->channels[channel].rx_cond_mtx, &ts) ==
-             thrd_success;
-
-    if (r) r = candle_receive_frame(device, channel, frame);
-
+    bool r = cnd_timedwait(&handle->channels[channel].rx_cnd, &handle->channels[channel].rx_cond_mtx, &ts) == thrd_success;
+    if (r) r = fifo_get(handle->channels[channel].rx_fifo, hf) == 0;
     mtx_unlock(&handle->channels[channel].rx_cond_mtx);
+
+    if (r) convert_frame(hf, frame, handle->channels[channel].mode & CANDLE_MODE_HW_TIMESTAMP);
     return r;
 }

@@ -1,6 +1,10 @@
 #ifndef CANDLE_API_H
 #define CANDLE_API_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -131,5 +135,9 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
 bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
 bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t milliseconds);
 bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // CANDLE_API_H
