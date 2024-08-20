@@ -110,8 +110,10 @@ struct gs_host_frame {
     uint8_t flags;
     uint8_t reserved;
 
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
+#endif
     union {
         DECLARE_FLEX_ARRAY(struct classic_can, classic_can);
         DECLARE_FLEX_ARRAY(struct classic_can_ts, classic_can_ts);
@@ -120,7 +122,9 @@ struct gs_host_frame {
         DECLARE_FLEX_ARRAY(struct canfd_ts, canfd_ts);
         DECLARE_FLEX_ARRAY(struct canfd_quirk, canfd_quirk);
     };
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
+#endif
 };
 #pragma pack(pop)
 

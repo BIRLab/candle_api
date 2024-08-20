@@ -98,7 +98,7 @@ struct candle_channel {
 };
 
 struct candle_device {
-    struct candle_device_handle *handle;    // read only
+    struct candle_device_handle *handle;    // reserve
     bool is_connected;                      // read only
     bool is_open;                           // read only
     uint16_t vendor_id;                     // read only
@@ -112,29 +112,14 @@ struct candle_device {
     struct candle_channel channels[];       // read only (size == channel_count)
 };
 
-/* thread unsafe */
-bool candle_initialize_unsafe(void);
-bool candle_finalize_unsafe(void);
-bool candle_list_device_unsafe(struct candle_device *devices[], size_t *size);
-bool candle_open_device_unsafe(struct candle_device *device);
-bool candle_close_device_unsafe(struct candle_device *device);
-bool candle_reset_channel_unsafe(struct candle_device *device, uint8_t channel);
-bool candle_start_channel_unsafe(struct candle_device *device, uint8_t channel, enum candle_mode mode);
-bool candle_set_bit_timing_unsafe(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing);
-bool candle_set_data_bit_timing_unsafe(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing);
-bool candle_get_termination_unsafe(struct candle_device *device, uint8_t channel, bool *enable);
-bool candle_set_termination_unsafe(struct candle_device *device, uint8_t channel, bool enable);
-bool candle_get_state_unsafe(struct candle_device *device, uint8_t channel, struct candle_state *state);
-bool candle_send_frame_unsafe(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
-bool candle_receive_frame_unsafe(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
-bool candle_wait_frame_unsafe(struct candle_device *device, uint8_t channel, uint32_t milliseconds);
-
-/* thread safe */
 bool candle_initialize(void);
-bool candle_finalize(void);
-bool candle_list_device(struct candle_device *devices[], size_t *size);
+void candle_finalize(void);
+bool candle_get_device_list(struct candle_device ***devices, size_t *size);
+void candle_free_device_list(struct candle_device **devices);
+struct candle_device *candle_ref_device(struct candle_device *device);
+void candle_unref_device(struct candle_device *device);
 bool candle_open_device(struct candle_device *device);
-bool candle_close_device(struct candle_device *device);
+void candle_close_device(struct candle_device *device);
 bool candle_reset_channel(struct candle_device *device, uint8_t channel);
 bool candle_start_channel(struct candle_device *device, uint8_t channel, enum candle_mode mode);
 bool candle_set_bit_timing(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing);
@@ -145,5 +130,6 @@ bool candle_get_state(struct candle_device *device, uint8_t channel, struct cand
 bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
 bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
 bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t milliseconds);
+bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
 
 #endif // CANDLE_API_H

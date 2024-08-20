@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <threads.h>
+#include <assert.h>
 
 static const size_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 static struct libusb_context *ctx = NULL;
@@ -28,23 +29,12 @@ struct candle_device_handle {
     struct libusb_device *usb_device;
     struct libusb_device_handle *usb_device_handle;
     struct libusb_transfer *rx_transfer;
+    size_t ref_count;
     size_t rx_size;
     uint8_t in_ep;
     uint8_t out_ep;
     struct candle_channel_handle channels[];
 };
-
-static void clean_device_list(void) {
-    struct candle_device_handle *pos;
-    struct candle_device_handle *n;
-    list_for_each_entry_safe(pos, n, &device_list, list) {
-        candle_close_device_unsafe(pos->device);
-        list_del(&pos->list);
-        libusb_unref_device(pos->usb_device);
-        free(pos->device);
-        free(pos);
-    }
-}
 
 static int event_thread_func(void *arg) {
     while (event_thread_run)
@@ -80,27 +70,25 @@ static void after_libusb_close_hook(void) {
 
 static void receive_bulk_callback(struct libusb_transfer *transfer) {
     struct candle_device_handle *handle = transfer->user_data;
+    struct gs_host_frame *hf = (struct gs_host_frame *)transfer->buffer;
+    uint8_t ch = hf->channel;
 
-    struct gs_host_frame *hf;
     switch (transfer->status) {
+        case LIBUSB_TRANSFER_COMPLETED:
+            if (handle->channels[ch].is_start) {
+                fifo_put(handle->channels[ch].rx_fifo, hf);
+                mtx_lock(&handle->channels[ch].rx_cond_mtx);
+                cnd_signal(&handle->channels[ch].rx_cnd);
+                mtx_unlock(&handle->channels[ch].rx_cond_mtx);
+            }
+            libusb_submit_transfer(transfer);
+            break;
         case LIBUSB_TRANSFER_CANCELLED:
             free(transfer->buffer);
-            libusb_free_transfer(handle->rx_transfer);
-            handle->rx_transfer = NULL;
+            libusb_free_transfer(transfer);
             break;
         case LIBUSB_TRANSFER_NO_DEVICE:
             handle->device->is_connected = false;
-            free(transfer->buffer);
-            libusb_free_transfer(handle->rx_transfer);
-            handle->rx_transfer = NULL;
-            break;
-        case LIBUSB_TRANSFER_COMPLETED:
-            hf = (struct gs_host_frame *) transfer->buffer;
-            fifo_put(handle->channels[hf->channel].rx_fifo, hf);
-            mtx_lock(&handle->channels[hf->channel].rx_cond_mtx);
-            cnd_signal(&handle->channels[hf->channel].rx_cnd);
-            mtx_unlock(&handle->channels[hf->channel].rx_cond_mtx);
-            libusb_submit_transfer(transfer);
             break;
         default:
             libusb_submit_transfer(transfer);
@@ -111,73 +99,108 @@ static void transmit_bulk_callback(struct libusb_transfer *transfer) {
     struct candle_device_handle *handle = transfer->user_data;
 
     switch (transfer->status) {
-        case LIBUSB_TRANSFER_NO_DEVICE:
-            handle->device->is_connected = false;
+        case LIBUSB_TRANSFER_COMPLETED:
             free(transfer->buffer);
             libusb_free_transfer(transfer);
             break;
-        case LIBUSB_TRANSFER_COMPLETED:
         case LIBUSB_TRANSFER_CANCELLED:
             free(transfer->buffer);
             libusb_free_transfer(transfer);
+            break;
+        case LIBUSB_TRANSFER_NO_DEVICE:
+            free(transfer->buffer);
+            libusb_free_transfer(transfer);
+            handle->device->is_connected = false;
             break;
         default:
             libusb_submit_transfer(transfer);
     }
 }
 
-bool candle_initialize_unsafe(void) {
+static void free_device(struct candle_device_handle* handle) {
+    list_del(&handle->list);
+    if (handle->rx_transfer != NULL) {
+        libusb_cancel_transfer(handle->rx_transfer);
+    }
+    if (handle->usb_device_handle != NULL) {
+        libusb_release_interface(handle->usb_device_handle, 0);
+        before_libusb_close_hook();
+        libusb_close(handle->usb_device_handle);
+        after_libusb_close_hook();
+    }
+    for (int i = 0; i < handle->device->channel_count; ++i) {
+        fifo_free(handle->channels[i].rx_fifo);
+        cnd_destroy(&handle->channels[i].rx_cnd);
+        mtx_destroy(&handle->channels[i].rx_cond_mtx);
+    }
+    libusb_unref_device(handle->usb_device);
+    free(handle->device);
+    free(handle);
+}
+
+bool candle_initialize(void) {
     if (ctx == NULL && libusb_init_context(&ctx, NULL, 0) == LIBUSB_SUCCESS)
         return true;
     return false;
 }
 
-bool candle_finalize_unsafe(void) {
-    clean_device_list();
+void candle_finalize(void) {
+    if (ctx == NULL)
+        return;
+
+    struct candle_device_handle *pos;
+    struct candle_device_handle *n;
+    list_for_each_entry_safe(pos, n, &device_list, list) {
+        free_device(pos);
+    }
     libusb_exit(ctx);
     ctx = NULL;
-    return true;
 }
 
-bool candle_list_device_unsafe(struct candle_device **devices, size_t *size) {
-    if (ctx == NULL) return false;
+bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
+    int rc;
+    struct candle_device_handle *pos;
+    struct candle_device_handle *n;
 
+    // get usb device list
     struct libusb_device **usb_device_list;
     ssize_t count = libusb_get_device_list(ctx, &usb_device_list);
     if (count < 0) return false;
 
-    int rc;
-    size_t actual_size = 0;
-    LIST_HEAD(new_device_list);
-    struct candle_device_handle *pos;
-    struct candle_device_handle *n;
+    // iterate usb device
     for (size_t i = 0; i < (size_t) count; ++i) {
         struct libusb_device *dev = usb_device_list[i];
         struct libusb_device_descriptor desc;
 
+        // request usb descriptor
         rc = libusb_get_device_descriptor(dev, &desc);
         if (rc != LIBUSB_SUCCESS) continue;
 
+        // check vid pid
         if ((desc.idVendor == 0x1d50 && desc.idProduct == 0x606f) ||
             (desc.idVendor == 0x1209 && desc.idProduct == 0x2323) ||
             (desc.idVendor == 0x1cd2 && desc.idProduct == 0x606f) ||
             (desc.idVendor == 0x16d0 && desc.idProduct == 0x10b8) ||
             (desc.idVendor == 0x16d0 && desc.idProduct == 0x0f30)) {
 
-            struct candle_device *target_candle_device = NULL;
-            list_for_each_entry_safe(pos, n, &device_list, list) {
+            // if a candle device already in device list
+            bool old_device = false;
+            list_for_each_entry(pos, &device_list, list) {
                 if (pos->usb_device == dev) {
-                    list_del(&pos->list);
-                    list_add_tail(&pos->list, &new_device_list);
-                    target_candle_device = pos->device;
+                    pos->ref_count++;   // ref once
+                    old_device = true;
                 }
             }
 
-            if (target_candle_device == NULL) {
+            // create new candle device
+            if (!old_device) {
+                // open usb device to request necessary information
                 struct libusb_device_handle *dev_handle;
                 rc = libusb_open(dev, &dev_handle);
-                after_libusb_open_hook();
                 if (rc != LIBUSB_SUCCESS) goto handle_error;
+
+                // libusb open close hook
+                after_libusb_open_hook();
 
                 // read usb descriptions
                 struct candle_device candle_dev;
@@ -185,41 +208,38 @@ bool candle_list_device_unsafe(struct candle_device **devices, size_t *size) {
                 candle_dev.is_open = false;
                 candle_dev.vendor_id = desc.idVendor;
                 candle_dev.product_id = desc.idProduct;
-                libusb_get_string_descriptor_ascii(dev_handle, desc.iManufacturer, (uint8_t *) candle_dev.manufacturer,
-                                                   256);
+                libusb_get_string_descriptor_ascii(dev_handle, desc.iManufacturer, (uint8_t *) candle_dev.manufacturer, 256);
                 libusb_get_string_descriptor_ascii(dev_handle, desc.iProduct, (uint8_t *) candle_dev.product, 256);
-                libusb_get_string_descriptor_ascii(dev_handle, desc.iSerialNumber, (uint8_t *) candle_dev.serial_number,
-                                                   256);
+                libusb_get_string_descriptor_ascii(dev_handle, desc.iSerialNumber, (uint8_t *) candle_dev.serial_number, 256);
 
                 // send host config
                 struct gs_host_config hconf;
                 hconf.byte_order = 0x0000beef;
-                rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR |
-                                                         LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_HOST_FORMAT, 1, 0,
-                                             (uint8_t *) &hconf, sizeof(hconf), 1000);
+                rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_HOST_FORMAT, 1, 0, (uint8_t *) &hconf, sizeof(hconf), 1000);
                 if (rc < LIBUSB_SUCCESS) goto handle_error;
 
                 // read device config
                 struct gs_device_config dconf;
-                rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR |
-                                                         LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_DEVICE_CONFIG, 1, 0,
-                                             (uint8_t *) &dconf, sizeof(dconf), 1000);
+                rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_DEVICE_CONFIG, 1, 0, (uint8_t *) &dconf, sizeof(dconf), 1000);
                 if (rc < LIBUSB_SUCCESS) goto handle_error;
+
+                // channel count
                 uint8_t channel_count = dconf.icount + 1;
+
+                // update device information
                 candle_dev.channel_count = channel_count;
                 candle_dev.software_version = dconf.sw_version;
                 candle_dev.hardware_version = dconf.hw_version;
 
-                // read channel info
-                struct candle_device *new_candle_device = malloc(
-                        sizeof(struct candle_device) + channel_count * sizeof(struct candle_channel));
+                // alloc device memory
+                struct candle_device *new_candle_device = malloc(sizeof(struct candle_device) + channel_count * sizeof(struct candle_channel));
                 if (new_candle_device == NULL) goto handle_error;
                 memcpy(new_candle_device, &candle_dev, sizeof(candle_dev));
+
+                // request channel information
                 for (uint8_t j = 0; j < channel_count; ++j) {
                     struct gs_device_bt_const bt_const;
-                    rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR |
-                                                             LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_BT_CONST, j, 0,
-                                                 (uint8_t *) &bt_const, sizeof(bt_const), 1000);
+                    rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_BT_CONST, j, 0, (uint8_t *) &bt_const, sizeof(bt_const), 1000);
                     if (rc < LIBUSB_SUCCESS) {
                         free(new_candle_device);
                         goto handle_error;
@@ -238,17 +258,14 @@ bool candle_list_device_unsafe(struct candle_device **devices, size_t *size) {
                     if (desc.idVendor == 0x1d50 && desc.idProduct == 0x606f &&
                         !strcmp(new_candle_device->manufacturer, "LinkLayer Labs") &&
                         !strcmp(new_candle_device->product, "CANtact Pro") && dconf.sw_version <= 2)
-                        new_candle_device->channels[j].feature |=
-                                CANDLE_FEATURE_REQ_USB_QUIRK_LPC546XX | CANDLE_FEATURE_QUIRK_BREQ_CANTACT_PRO;
+                        new_candle_device->channels[j].feature |= CANDLE_FEATURE_REQ_USB_QUIRK_LPC546XX | CANDLE_FEATURE_QUIRK_BREQ_CANTACT_PRO;
 
                     if (!(dconf.sw_version > 1 && new_candle_device->channels[j].feature & CANDLE_FEATURE_IDENTIFY))
                         new_candle_device->channels[j].feature &= ~CANDLE_FEATURE_IDENTIFY;
 
                     if (bt_const.feature & CANDLE_FEATURE_FD && bt_const.feature & CANDLE_FEATURE_BT_CONST_EXT) {
                         struct gs_device_bt_const_extended bt_const_ext;
-                        rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR |
-                                                                 LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_BT_CONST_EXT,
-                                                     j, 0, (uint8_t *) &bt_const_ext, sizeof(bt_const_ext), 1000);
+                        rc = libusb_control_transfer(dev_handle, LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE, GS_USB_BREQ_BT_CONST_EXT, j, 0, (uint8_t *) &bt_const_ext, sizeof(bt_const_ext), 1000);
                         if (rc < LIBUSB_SUCCESS) {
                             free(new_candle_device);
                             goto handle_error;
@@ -262,28 +279,15 @@ bool candle_list_device_unsafe(struct candle_device **devices, size_t *size) {
                         new_candle_device->channels[j].bit_timing_const.data.brp_max = bt_const_ext.dbrp_max;
                         new_candle_device->channels[j].bit_timing_const.data.brp_inc = bt_const_ext.dbrp_inc;
                     } else
-                        memset(&new_candle_device->channels[j].bit_timing_const.data, 0,
-                               sizeof(struct candle_bit_timing_const));
+                        memset(&new_candle_device->channels[j].bit_timing_const.data, 0, sizeof(struct candle_bit_timing_const));
                 }
-
-                // create internal handle
-                struct candle_device_handle *handle = malloc(
-                        sizeof(struct candle_device_handle) + channel_count * sizeof(struct candle_channel_handle));
-                if (handle == NULL) {
-                    free(new_candle_device);
-                    goto handle_error;
-                }
-                handle->device = new_candle_device;
-                handle->rx_transfer = NULL;
-                new_candle_device->handle = handle;
 
                 // find bulk endpoints
-                handle->in_ep = 0;
-                handle->out_ep = 0;
+                uint8_t in_ep = 0;
+                uint8_t out_ep = 0;
                 struct libusb_config_descriptor *conf_desc;
                 rc = libusb_get_active_config_descriptor(dev, &conf_desc);
                 if (rc != LIBUSB_SUCCESS) {
-                    free(handle);
                     free(new_candle_device);
                     goto handle_error;
                 }
@@ -291,100 +295,205 @@ bool candle_list_device_unsafe(struct candle_device **devices, size_t *size) {
                     uint8_t ep_address = conf_desc->interface[0].altsetting[0].endpoint[j].bEndpointAddress;
                     uint8_t ep_type = conf_desc->interface[0].altsetting[0].endpoint[j].bmAttributes;
                     if (ep_address & LIBUSB_ENDPOINT_IN && ep_type & LIBUSB_ENDPOINT_TRANSFER_TYPE_BULK)
-                        handle->in_ep = ep_address;
+                        in_ep = ep_address;
                     if (!(ep_address & LIBUSB_ENDPOINT_IN) && ep_type & LIBUSB_ENDPOINT_TRANSFER_TYPE_BULK)
-                        handle->out_ep = ep_address;
+                        out_ep = ep_address;
                 }
-                if (!(handle->in_ep && handle->out_ep)) {
-                    free(handle);
+                if (!(in_ep && out_ep)) {
                     free(new_candle_device);
                     goto handle_error;
                 }
 
-                // new target device
-                handle->usb_device = libusb_ref_device(dev);
-                list_add_tail(&handle->list, &new_device_list);
-                target_candle_device = new_candle_device;
-
-                handle_error:
-                before_libusb_close_hook();
-                libusb_close(dev_handle);
-                after_libusb_close_hook();
-            }
-
-            // put device to output list
-            if (target_candle_device != NULL) {
-                actual_size++;
-                if (actual_size <= *size) {
-                    devices[actual_size - 1] = target_candle_device;
+                // calculate rx size
+                struct gs_host_frame *hf;
+                size_t rx_hf_size;
+                size_t rx_size = 0;
+                for (int j = 0; j < channel_count; ++j) {
+                    if (new_candle_device->channels[j].feature & CANDLE_FEATURE_FD) {
+                        if (new_candle_device->channels[j].feature & CANDLE_FEATURE_HW_TIMESTAMP)
+                            rx_hf_size = struct_size(hf, canfd_ts, 1);
+                        else
+                            rx_hf_size = struct_size(hf, canfd, 1);
+                    } else {
+                        if (new_candle_device->channels[j].feature & CANDLE_FEATURE_HW_TIMESTAMP)
+                            rx_hf_size = struct_size(hf, classic_can_ts, 1);
+                        else
+                            rx_hf_size = struct_size(hf, classic_can, 1);
+                    }
+                    rx_size = max(rx_size, rx_hf_size);
                 }
+
+                // create internal handle
+                struct candle_device_handle *handle = malloc(sizeof(struct candle_device_handle) + channel_count * sizeof(struct candle_channel_handle));
+                if (handle == NULL) {
+                    free(new_candle_device);
+                    goto handle_error;
+                }
+                handle->device = new_candle_device;
+                handle->usb_device = libusb_ref_device(dev);
+                handle->usb_device_handle = NULL;
+                handle->rx_transfer = NULL;
+                handle->ref_count = 1;  // ref once
+                handle->rx_size = rx_size;
+                handle->in_ep = in_ep;
+                handle->out_ep = out_ep;
+
+                // create internal channel handle
+                for (int j = 0; j < channel_count; ++j) {
+                    handle->channels[j].is_start = false;
+                    handle->channels[j].mode = CANDLE_MODE_NORMAL;
+                    handle->channels[j].rx_fifo = fifo_create((char)rx_size, 10);
+                    cnd_init(&handle->channels[j].rx_cnd);
+                    mtx_init(&handle->channels[j].rx_cond_mtx, mtx_plain);
+                }
+
+                // set candle device handle
+                new_candle_device->handle = handle;
+
+                // add handle to device list
+                list_add_tail(&handle->list, &device_list);
+
+handle_error:
+                // libusb open close hook
+                before_libusb_close_hook();
+
+                libusb_close(dev_handle);
+
+                // libusb open close hook
+                after_libusb_close_hook();
             }
         }
     }
+
+    // free usb device list
     libusb_free_device_list(usb_device_list, 1);
 
-    // clean old device
-    clean_device_list();
+    // calculate list size
+    *size = list_count_nodes(&device_list);
 
-    // update device list
-    list_splice_tail_init(&new_device_list, &device_list);
+    // prepare output device list (NULL terminated)
+    struct candle_device **output_device_list = calloc(sizeof(struct candle_device *), *size + 1);
 
-    *size = actual_size;
+    // cannot alloc memory
+    if (output_device_list == NULL) {
+        // unref once
+        list_for_each_entry_safe(pos, n, &device_list, list) {
+            pos->ref_count--;
+            if (pos->ref_count == 0)
+                free_device(pos);
+        }
+        return false;
+    }
+
+    // fill output device list
+    size_t i = 0;
+    list_for_each_entry(pos, &device_list, list) {
+        output_device_list[i] = pos->device;
+        i++;
+    }
+
+    // success
+    *devices = output_device_list;
     return true;
 }
 
-bool candle_open_device_unsafe(struct candle_device *device) {
+void candle_free_device_list(struct candle_device **devices) {
+    // unref device
+    for(int i = 0; devices[i] != NULL; ++i) {
+        devices[i]->handle->ref_count--;
+        if (devices[i]->handle->ref_count == 0)
+            free_device(devices[i]->handle);
+    }
+
+    // free list
+    free(devices);
+}
+
+struct candle_device *candle_ref_device(struct candle_device *device) {
+    device->handle->ref_count++;
+    return device;
+}
+
+void candle_unref_device(struct candle_device *device) {
+    device->handle->ref_count--;
+    if (device->handle->ref_count == 0)
+        free_device(device->handle);
+}
+
+bool candle_open_device(struct candle_device *device) {
     struct candle_device_handle *handle = device->handle;
 
+    // avoid double open
     if (device->is_open)
         return false;
 
+    // open usb device
     int rc = libusb_open(handle->usb_device, &handle->usb_device_handle);
-    if (rc != LIBUSB_SUCCESS) return false;
-
-    after_libusb_open_hook();
-
-    rc = libusb_set_auto_detach_kernel_driver(handle->usb_device_handle, 1);
-    if (rc != LIBUSB_SUCCESS && rc != LIBUSB_ERROR_NOT_SUPPORTED) return false;
-
-    rc = libusb_claim_interface(handle->usb_device_handle, 0);
-    if (rc != LIBUSB_SUCCESS) return false;
-
-    // reset channel
-    for (int i = 0; i < device->channel_count; ++i) {
-        candle_reset_channel_unsafe(device, i);
+    if (rc != LIBUSB_SUCCESS) {
+        handle->usb_device_handle = NULL;
+        return false;
     }
 
-    // calculate rx size
-    struct gs_host_frame *hf;
-    size_t hf_size_rx;
-    handle->rx_size = 0;
+    // libusb open close hook
+    after_libusb_open_hook();
+
+    // detach kernel driver
+    rc = libusb_set_auto_detach_kernel_driver(handle->usb_device_handle, 1);
+    if (rc != LIBUSB_SUCCESS && rc != LIBUSB_ERROR_NOT_SUPPORTED) {
+        before_libusb_close_hook();
+        libusb_close(handle->usb_device_handle);
+        after_libusb_close_hook();
+        handle->usb_device_handle = NULL;
+        return false;
+    }
+
+    // claim interface
+    rc = libusb_claim_interface(handle->usb_device_handle, 0);
+    if (rc != LIBUSB_SUCCESS) {
+        before_libusb_close_hook();
+        libusb_close(handle->usb_device_handle);
+        after_libusb_close_hook();
+        handle->usb_device_handle = NULL;
+        return false;
+    }
+
+    // reset channel
+    struct gs_device_mode md = {.mode = 0};
     for (int i = 0; i < device->channel_count; ++i) {
-        if (device->channels[i].feature & CANDLE_FEATURE_FD) {
-            if (device->channels[i].feature & CANDLE_FEATURE_HW_TIMESTAMP)
-                hf_size_rx = struct_size(hf, canfd_ts, 1);
-            else
-                hf_size_rx = struct_size(hf, canfd, 1);
-        } else {
-            if (device->channels[i].feature & CANDLE_FEATURE_HW_TIMESTAMP)
-                hf_size_rx = struct_size(hf, classic_can_ts, 1);
-            else
-                hf_size_rx = struct_size(hf, classic_can, 1);
+        rc = libusb_control_transfer(handle->usb_device_handle,
+                                     LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
+                                     GS_USB_BREQ_MODE, i, 0, (uint8_t *) &md, sizeof(md), 1000);
+        if (rc < LIBUSB_SUCCESS) {
+            libusb_release_interface(handle->usb_device_handle, 0);
+            before_libusb_close_hook();
+            libusb_close(handle->usb_device_handle);
+            after_libusb_close_hook();
+            handle->usb_device_handle = NULL;
+            return false;
         }
-        handle->rx_size = max(handle->rx_size, hf_size_rx);
     }
 
     // alloc transfer
     handle->rx_transfer = libusb_alloc_transfer(0);
     if (handle->rx_transfer == NULL) {
+        libusb_release_interface(handle->usb_device_handle, 0);
+        before_libusb_close_hook();
+        libusb_close(handle->usb_device_handle);
+        after_libusb_close_hook();
+        handle->usb_device_handle = NULL;
         return false;
     }
 
-    // frame buffer
+    // alloc frame buffer
     uint8_t *fb = malloc(handle->rx_size);
     if (fb == NULL) {
         libusb_free_transfer(handle->rx_transfer);
         handle->rx_transfer = NULL;
+        libusb_release_interface(handle->usb_device_handle, 0);
+        before_libusb_close_hook();
+        libusb_close(handle->usb_device_handle);
+        after_libusb_close_hook();
+        handle->usb_device_handle = NULL;
         return false;
     }
 
@@ -395,40 +504,63 @@ bool candle_open_device_unsafe(struct candle_device *device) {
     // submit transfer
     rc = libusb_submit_transfer(handle->rx_transfer);
     if (rc != LIBUSB_SUCCESS) {
+        free(fb);
         libusb_free_transfer(handle->rx_transfer);
         handle->rx_transfer = NULL;
-        free(fb);
+        libusb_release_interface(handle->usb_device_handle, 0);
+        before_libusb_close_hook();
+        libusb_close(handle->usb_device_handle);
+        after_libusb_close_hook();
+        handle->usb_device_handle = NULL;
         return false;
     }
 
+    // increase ref count
+    handle->ref_count++;
+
+    // success
     device->is_open = true;
     return true;
 }
 
-bool candle_close_device_unsafe(struct candle_device *device) {
+void candle_close_device(struct candle_device *device) {
     struct candle_device_handle *handle = device->handle;
 
+    // avoid double close
     if (!device->is_open)
-        return false;
+        return;
 
-    // reset channel
+    // cancel transfer (rx_transfer and buffer will be free in receive_bulk_callback)
+    libusb_cancel_transfer(handle->rx_transfer);
+    handle->rx_transfer = NULL;
+
+    // reset channel (best efforts)
+    struct gs_device_mode md = {.mode = 0};
     for (int i = 0; i < device->channel_count; ++i) {
-        candle_reset_channel_unsafe(device, i);
+        libusb_control_transfer(handle->usb_device_handle,
+                                LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
+                                GS_USB_BREQ_MODE, i, 0, (uint8_t *) &md, sizeof(md), 1000);
     }
 
-    // cancel transfer
-    libusb_cancel_transfer(handle->rx_transfer);
-
-    // release usb device
+    // release interface
     libusb_release_interface(handle->usb_device_handle, 0);
+
+    // close usb device
     before_libusb_close_hook();
     libusb_close(handle->usb_device_handle);
     after_libusb_close_hook();
+    handle->usb_device_handle = NULL;
+
+    // device is closed
     device->is_open = false;
-    return true;
+
+    // decrease ref count
+    handle->ref_count--;
+    if (handle->ref_count == 0)
+        free_device(handle);
 }
 
-bool candle_reset_channel_unsafe(struct candle_device *device, uint8_t channel) {
+bool candle_reset_channel(struct candle_device *device, uint8_t channel) {
     struct candle_device_handle *handle = device->handle;
 
     if (!device->is_open)
@@ -441,18 +573,14 @@ bool candle_reset_channel_unsafe(struct candle_device *device, uint8_t channel) 
     if (rc < LIBUSB_SUCCESS)
         return false;
 
-    fifo_free(handle->channels[channel].rx_fifo);
-    handle->channels[channel].rx_fifo = NULL;
-    cnd_destroy(&handle->channels[channel].rx_cnd);
-    mtx_destroy(&handle->channels[channel].rx_cond_mtx);
-
+    fifo_flush(handle->channels[channel].rx_fifo);
     handle->channels[channel].mode = CANDLE_MODE_NORMAL;
     handle->channels[channel].is_start = false;
 
     return true;
 }
 
-bool candle_start_channel_unsafe(struct candle_device *device, uint8_t channel, enum candle_mode mode) {
+bool candle_start_channel(struct candle_device *device, uint8_t channel, enum candle_mode mode) {
     struct candle_device_handle *handle = device->handle;
 
     if (!device->is_open)
@@ -465,21 +593,13 @@ bool candle_start_channel_unsafe(struct candle_device *device, uint8_t channel, 
     if (rc < LIBUSB_SUCCESS)
         return false;
 
-    // handle->rx_size <= 80
-    handle->channels[channel].rx_fifo = fifo_create((char) handle->rx_size, 10);
-    if (handle->channels[channel].rx_fifo == NULL)
-        return false;
-
-    cnd_init(&handle->channels[channel].rx_cnd);
-    mtx_init(&handle->channels[channel].rx_cond_mtx, mtx_timed);
-
     handle->channels[channel].mode = mode;
     handle->channels[channel].is_start = true;
 
     return true;
 }
 
-bool candle_set_bit_timing_unsafe(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
+bool candle_set_bit_timing(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
     struct candle_device_handle *handle = device->handle;
 
     if (!device->is_open)
@@ -495,7 +615,7 @@ bool candle_set_bit_timing_unsafe(struct candle_device *device, uint8_t channel,
     return true;
 }
 
-bool candle_set_data_bit_timing_unsafe(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
+bool candle_set_data_bit_timing(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
     struct candle_device_handle *handle = device->handle;
 
     if (!device->is_open)
@@ -510,7 +630,7 @@ bool candle_set_data_bit_timing_unsafe(struct candle_device *device, uint8_t cha
     return true;
 }
 
-bool candle_get_termination_unsafe(struct candle_device *device, uint8_t channel, bool *enable) {
+bool candle_get_termination(struct candle_device *device, uint8_t channel, bool *enable) {
     struct candle_device_handle *handle = device->handle;
 
     if (!device->is_open)
@@ -530,7 +650,7 @@ bool candle_get_termination_unsafe(struct candle_device *device, uint8_t channel
     return true;
 }
 
-bool candle_set_termination_unsafe(struct candle_device *device, uint8_t channel, bool enable) {
+bool candle_set_termination(struct candle_device *device, uint8_t channel, bool enable) {
     struct candle_device_handle *handle = device->handle;
 
     if (!device->is_open)
@@ -545,7 +665,7 @@ bool candle_set_termination_unsafe(struct candle_device *device, uint8_t channel
     return true;
 }
 
-bool candle_get_state_unsafe(struct candle_device *device, uint8_t channel, struct candle_state *state) {
+bool candle_get_state(struct candle_device *device, uint8_t channel, struct candle_state *state) {
     struct candle_device_handle *handle = device->handle;
 
     if (!device->is_open)
@@ -564,7 +684,7 @@ bool candle_get_state_unsafe(struct candle_device *device, uint8_t channel, stru
     return true;
 }
 
-bool candle_send_frame_unsafe(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
+bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
     struct candle_device_handle *handle = device->handle;
 
     if (!handle->channels[channel].is_start)
@@ -640,7 +760,7 @@ bool candle_send_frame_unsafe(struct candle_device *device, uint8_t channel, str
     return true;
 }
 
-bool candle_receive_frame_unsafe(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
+bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
     struct candle_device_handle *handle = device->handle;
 
     if (!handle->channels[channel].is_start)
@@ -688,7 +808,7 @@ bool candle_receive_frame_unsafe(struct candle_device *device, uint8_t channel, 
     return true;
 }
 
-bool candle_wait_frame_unsafe(struct candle_device *device, uint8_t channel, uint32_t milliseconds) {
+bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t milliseconds) {
     struct candle_device_handle *handle = device->handle;
 
     MUTEX_LOCK(handle->channels[channel].rx_fifo->mutex);
@@ -703,10 +823,10 @@ bool candle_wait_frame_unsafe(struct candle_device *device, uint8_t channel, uin
     struct timespec ts;
     timespec_get(&ts, TIME_UTC);
     ts.tv_sec += milliseconds / 1000;
-    ts.tv_nsec += (milliseconds % 1000) * 1000000;
+    ts.tv_nsec += (long)(milliseconds % 1000) * 1000000;
 
-    if (ts.tv_nsec > 1000000) {
-        ts.tv_nsec -= 1000000;
+    if (ts.tv_nsec > 1000000000) {
+        ts.tv_nsec -= 1000000000;
         ts.tv_sec += 1;
     }
 
@@ -716,139 +836,33 @@ bool candle_wait_frame_unsafe(struct candle_device *device, uint8_t channel, uin
     return r;
 }
 
-static mtx_t api_mtx;
-static once_flag api_mtx_init = ONCE_FLAG_INIT;
+bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
+    struct candle_device_handle *handle = device->handle;
 
-static void init_api_mutex(void) {
-    mtx_init(&api_mtx, mtx_plain);
-}
+    MUTEX_LOCK(handle->channels[channel].rx_fifo->mutex);
+    bool empty = fifo_is_empty(handle->channels[channel].rx_fifo);
+    if (empty)
+        mtx_lock(&handle->channels[channel].rx_cond_mtx);
+    MUTEX_UNLOCK(handle->channels[channel].rx_fifo->mutex);
 
-static void api_lock(void) {
-    call_once(&api_mtx_init, init_api_mutex);
-    mtx_lock(&api_mtx);
-}
+    if (!empty)
+        return true;
 
-static void api_unlock(void) {
-    call_once(&api_mtx_init, init_api_mutex);
-    mtx_unlock(&api_mtx);
-}
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    ts.tv_sec += milliseconds / 1000;
+    ts.tv_nsec += (long)(milliseconds % 1000) * 1000000;
 
-bool candle_initialize(void) {
-    bool r;
-    api_lock();
-    r = candle_initialize_unsafe();
-    api_unlock();
-    return r;
-}
+    if (ts.tv_nsec > 1000000000) {
+        ts.tv_nsec -= 1000000000;
+        ts.tv_sec += 1;
+    }
 
-bool candle_finalize(void) {
-    bool r;
-    api_lock();
-    r = candle_finalize_unsafe();
-    api_unlock();
-    return r;
-}
+    bool r = cnd_timedwait(&handle->channels[channel].rx_cnd, &handle->channels[channel].rx_cond_mtx, &ts) ==
+             thrd_success;
 
-bool candle_list_device(struct candle_device *devices[], size_t *size) {
-    bool r;
-    api_lock();
-    r = candle_list_device_unsafe(devices, size);
-    api_unlock();
-    return r;
-}
+    if (r) r = candle_receive_frame(device, channel, frame);
 
-bool candle_open_device(struct candle_device *device) {
-    bool r;
-    api_lock();
-    r = candle_open_device_unsafe(device);
-    api_unlock();
-    return r;
-}
-
-bool candle_close_device(struct candle_device *device) {
-    bool r;
-    api_lock();
-    r = candle_close_device_unsafe(device);
-    api_unlock();
-    return r;
-}
-
-bool candle_reset_channel(struct candle_device *device, uint8_t channel) {
-    bool r;
-    api_lock();
-    r = candle_reset_channel_unsafe(device, channel);
-    api_unlock();
-    return r;
-}
-
-bool candle_start_channel(struct candle_device *device, uint8_t channel, enum candle_mode mode) {
-    bool r;
-    api_lock();
-    r = candle_start_channel_unsafe(device, channel, mode);
-    api_unlock();
-    return r;
-}
-
-bool candle_set_bit_timing(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
-    bool r;
-    api_lock();
-    r = candle_set_bit_timing_unsafe(device, channel, bit_timing);
-    api_unlock();
-    return r;
-}
-
-bool candle_set_data_bit_timing(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
-    bool r;
-    api_lock();
-    r = candle_set_data_bit_timing_unsafe(device, channel, bit_timing);
-    api_unlock();
-    return r;
-}
-
-bool candle_get_termination(struct candle_device *device, uint8_t channel, bool *enable) {
-    bool r;
-    api_lock();
-    r = candle_get_termination_unsafe(device, channel, enable);
-    api_unlock();
-    return r;
-}
-
-bool candle_set_termination(struct candle_device *device, uint8_t channel, bool enable) {
-    bool r;
-    api_lock();
-    r = candle_set_termination_unsafe(device, channel, enable);
-    api_unlock();
-    return r;
-}
-
-bool candle_get_state(struct candle_device *device, uint8_t channel, struct candle_state *state) {
-    bool r;
-    api_lock();
-    r = candle_get_state_unsafe(device, channel, state);
-    api_unlock();
-    return r;
-}
-
-bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
-    bool r;
-    api_lock();
-    r = candle_send_frame_unsafe(device, channel, frame);
-    api_unlock();
-    return r;
-}
-
-bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
-    bool r;
-    api_lock();
-    r = candle_receive_frame_unsafe(device, channel, frame);
-    api_unlock();
-    return r;
-}
-
-bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t milliseconds) {
-    bool r;
-    api_lock();
-    r = candle_wait_frame_unsafe(device, channel, milliseconds);
-    api_unlock();
+    mtx_unlock(&handle->channels[channel].rx_cond_mtx);
     return r;
 }
