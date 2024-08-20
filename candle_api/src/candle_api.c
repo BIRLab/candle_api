@@ -466,6 +466,8 @@ bool candle_open_device(struct candle_device *device) {
     // open usb device
     int rc = libusb_open(handle->usb_device, &handle->usb_device_handle);
     if (rc != LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         handle->usb_device_handle = NULL;
         return false;
     }
@@ -486,6 +488,8 @@ bool candle_open_device(struct candle_device *device) {
     // claim interface
     rc = libusb_claim_interface(handle->usb_device_handle, 0);
     if (rc != LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         before_libusb_close_hook();
         libusb_close(handle->usb_device_handle);
         after_libusb_close_hook();
@@ -500,6 +504,8 @@ bool candle_open_device(struct candle_device *device) {
                                      LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_MODE, i, 0, (uint8_t *) &md, sizeof(md), 1000);
         if (rc < LIBUSB_SUCCESS) {
+            if (rc == LIBUSB_ERROR_NO_DEVICE)
+                device->is_connected = false;
             libusb_release_interface(handle->usb_device_handle, 0);
             before_libusb_close_hook();
             libusb_close(handle->usb_device_handle);
@@ -540,6 +546,8 @@ bool candle_open_device(struct candle_device *device) {
     // submit transfer
     rc = libusb_submit_transfer(handle->rx_transfer);
     if (rc != LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         free(fb);
         libusb_free_transfer(handle->rx_transfer);
         handle->rx_transfer = NULL;
@@ -606,8 +614,11 @@ bool candle_reset_channel(struct candle_device *device, uint8_t channel) {
     int rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_MODE, channel, 0, (uint8_t *) &md, sizeof(md), 1000);
-    if (rc < LIBUSB_SUCCESS)
+    if (rc < LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         return false;
+    }
 
     fifo_flush(handle->channels[channel].rx_fifo);
     handle->channels[channel].mode = CANDLE_MODE_NORMAL;
@@ -626,8 +637,11 @@ bool candle_start_channel(struct candle_device *device, uint8_t channel, enum ca
     int rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_MODE, channel, 0, (uint8_t *) &md, sizeof(md), 1000);
-    if (rc < LIBUSB_SUCCESS)
+    if (rc < LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         return false;
+    }
 
     handle->channels[channel].mode = mode;
     handle->channels[channel].is_start = true;
@@ -645,8 +659,11 @@ bool candle_set_bit_timing(struct candle_device *device, uint8_t channel, struct
     int rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_BITTIMING, channel, 0, (uint8_t *) &bt, sizeof(bt), 1000);
-    if (rc < LIBUSB_SUCCESS)
+    if (rc < LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         return false;
+    }
 
     return true;
 }
@@ -661,8 +678,12 @@ bool candle_set_data_bit_timing(struct candle_device *device, uint8_t channel, s
     int rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_DATA_BITTIMING, channel, 0, (uint8_t *) &bt, sizeof(bt), 1000);
-    if (rc < LIBUSB_SUCCESS)
+    if (rc < LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         return false;
+    }
+
     return true;
 }
 
@@ -676,8 +697,11 @@ bool candle_get_termination(struct candle_device *device, uint8_t channel, bool 
     int rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_GET_TERMINATION, channel, 0, (uint8_t *) &state, sizeof(state), 1000);
-    if (rc < LIBUSB_SUCCESS)
+    if (rc < LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         return false;
+    }
 
     if (state)
         *enable = true;
@@ -696,8 +720,12 @@ bool candle_set_termination(struct candle_device *device, uint8_t channel, bool 
     int rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_SET_TERMINATION, channel, 0, (uint8_t *) &state, sizeof(state), 1000);
-    if (rc < LIBUSB_SUCCESS)
+    if (rc < LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         return false;
+    }
+
     return true;
 }
 
@@ -711,8 +739,11 @@ bool candle_get_state(struct candle_device *device, uint8_t channel, struct cand
     int rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
                                      GS_USB_BREQ_GET_STATE, channel, 0, (uint8_t *) &st, sizeof(st), 1000);
-    if (rc < LIBUSB_SUCCESS)
+    if (rc < LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         return false;
+    }
 
     state->state = st.state;
     state->rxerr = st.rxerr;
@@ -789,6 +820,8 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
                               transmit_bulk_callback, handle, 1000);
     int rc = libusb_submit_transfer(transfer);
     if (rc != LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
         free(hf);
         libusb_free_transfer(transfer);
     }
@@ -833,8 +866,7 @@ bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t m
         ts.tv_sec += 1;
     }
 
-    bool r = cnd_timedwait(&handle->channels[channel].rx_cnd, &handle->channels[channel].rx_cond_mtx, &ts) ==
-             thrd_success;
+    bool r = cnd_timedwait(&handle->channels[channel].rx_cnd, &handle->channels[channel].rx_cond_mtx, &ts) == thrd_success;
     mtx_unlock(&handle->channels[channel].rx_cond_mtx);
     return r;
 }
