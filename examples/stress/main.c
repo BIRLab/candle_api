@@ -12,7 +12,7 @@ struct test_epoch {
     int tx_cnt;
     int rx_cnt;
     int err_cnt;
-    clock_t dt;
+    double dt;
     struct candle_device *dev;
 };
 
@@ -21,7 +21,7 @@ static int receive_thread_func(void *arg) {
     struct test_epoch *e = arg;
 
     struct candle_can_frame frame;
-    clock_t st = clock();
+    time_t st = time(NULL);
     while (!interrupt) {
         if (!candle_wait_and_receive_frame(e->dev, 0, &frame, 1000))
             continue;
@@ -35,7 +35,7 @@ static int receive_thread_func(void *arg) {
                 e->tx_cnt++;
         }
     }
-    e->dt = clock() - st;
+    e->dt = difftime(time(NULL), st);
 
     while (candle_wait_and_receive_frame(e->dev, 0, &frame, 1000));
 
@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
 
     // start stress test
     struct test_epoch e;
-    for (int i = 0; i < 10 && dev->is_connected; ++i) {
+    for (int i = 0; i < 3 && dev->is_connected; ++i) {
         printf("Test epoch %d\n", i + 1);
 
         // reset epoch
@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
 
         // send message
         struct candle_can_frame frame = {.type = 0, .can_id = 0, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
-        for (int j = 0; j < 100000; ++j) {
+        for (int j = 0; j < 200000; ++j) {
             while ((dev->is_connected) && !candle_send_frame(dev, 0, &frame)) {
                 candle_wait_frame(dev, 0, 1000);
             }
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
         thrd_join(receive_thread, NULL);
 
         // calculate result
-        printf("tx: %d, rx %d, err: %d, dt: %d us\n", e.tx_cnt, e.rx_cnt, e.err_cnt, (int)(1e6 * (double)e.dt / CLOCKS_PER_SEC));
+        printf("tx: %d, rx %d, err: %d, dt: %d s\n", e.tx_cnt, e.rx_cnt, e.err_cnt, (int)e.dt);
     }
 
     // close device
