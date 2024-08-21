@@ -1,6 +1,5 @@
 #include "candle_api.h"
-#include "stdlib.h"
-#include "stdio.h"
+#include <stdio.h>
 #include <signal.h>
 
 

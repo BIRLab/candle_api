@@ -1,6 +1,5 @@
 #include "candle_api.h"
-#include "stdlib.h"
-#include "stdio.h"
+#include <stdio.h>
 
 
 int main(int argc, char *argv[]) {
@@ -49,15 +48,15 @@ int main(int argc, char *argv[]) {
         goto handle_error;
 
     // send message
-    struct candle_can_frame frame = {.type = 0, .echo_id = 123, .can_id = 0, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
+    struct candle_can_frame frame = {.type = 0, .can_id = 0, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
     success = candle_send_frame(dev, 0, &frame);
     if (!success)
         goto handle_error;
-    printf("send frame (echo id: %d)\n", frame.echo_id);
+    printf("send frame (id: %d)\n", frame.can_id);
 
     // receive message
     while (candle_wait_and_receive_frame(dev, 0, &frame, 1000)) {
-        printf("received frame (echo id: %d)\n", frame.echo_id);
+        printf("received frame (id: %d)\n", frame.can_id);
     }
 
     // close device

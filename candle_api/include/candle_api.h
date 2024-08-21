@@ -85,7 +85,6 @@ struct candle_bit_timing {
 
 struct candle_can_frame {
     enum candle_frame_type type;
-    uint32_t echo_id;
     uint32_t can_id;
     uint8_t can_dlc;
     uint8_t data[64];

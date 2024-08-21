@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <threads.h>
+#include <stdatomic.h>
 
 static const uint8_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 static struct libusb_context *ctx = NULL;
@@ -20,6 +21,7 @@ struct candle_channel_handle {
     fifo_t *rx_fifo;
     cnd_t rx_cnd;
     mtx_t rx_cond_mtx;
+    atomic_uint echo_id_pool;
 };
 
 struct candle_device_handle {
@@ -75,6 +77,12 @@ static void receive_bulk_callback(struct libusb_transfer *transfer) {
     switch (transfer->status) {
         case LIBUSB_TRANSFER_COMPLETED:
             if (ch < handle->device->channel_count && handle->channels[ch].is_start) {
+                // release echo id
+                if (hf->echo_id != 0xFFFFFFFF) {
+                    atomic_fetch_and(&handle->channels[ch].echo_id_pool, ~(1 << hf->echo_id));
+                }
+
+                // put in fifo
                 fifo_put(handle->channels[ch].rx_fifo, hf);
                 mtx_lock(&handle->channels[ch].rx_cond_mtx);
                 cnd_signal(&handle->channels[ch].rx_cnd);
@@ -150,8 +158,6 @@ static void convert_frame(struct gs_host_frame *hf, struct candle_can_frame *fra
         frame->type |= CANDLE_FRAME_TYPE_BRS;
     if (hf->flags & GS_CAN_FLAG_ESI)
         frame->type |= CANDLE_FRAME_TYPE_ESI;
-
-    frame->echo_id = hf->echo_id;
 
     if (hf->can_id & CAN_EFF_FLAG)
         frame->can_id = hf->can_id & 0x1FFFFFFF;
@@ -378,6 +384,7 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
                     handle->channels[j].rx_fifo = fifo_create((char)rx_size, 1024); // no more than 81920 bytes plus sizeof(fifo_t)
                     cnd_init(&handle->channels[j].rx_cnd);
                     mtx_init(&handle->channels[j].rx_cond_mtx, mtx_plain);
+                    atomic_init(&handle->channels[j].echo_id_pool, 0);
                 }
 
                 // set candle device handle
@@ -585,6 +592,7 @@ void candle_close_device(struct candle_device *device) {
         if (rc == LIBUSB_ERROR_NO_DEVICE)
             device->is_connected = false;
         fifo_flush(handle->channels[i].rx_fifo);
+        atomic_store(&handle->channels[i].echo_id_pool, 0);
         handle->channels[i].mode = CANDLE_MODE_NORMAL;
         handle->channels[i].is_start = false;
     }
@@ -629,6 +637,7 @@ bool candle_reset_channel(struct candle_device *device, uint8_t channel) {
     }
 
     fifo_flush(handle->channels[channel].rx_fifo);
+    atomic_store(&handle->channels[channel].echo_id_pool, 0);
     handle->channels[channel].mode = CANDLE_MODE_NORMAL;
     handle->channels[channel].is_start = false;
 
@@ -792,6 +801,23 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
     if (frame->type & CANDLE_FRAME_TYPE_FD && !(device->channels[channel].feature & CANDLE_FEATURE_FD))
         return false;
 
+    // find available echo id
+    uint32_t echo_id_pool = atomic_load(&handle->channels[channel].echo_id_pool);
+    uint32_t echo_id = 0xFFFFFFFF;
+    for (int i = 0; i < 32; ++i) {
+        if (!(echo_id_pool & (1 << i))) {
+            echo_id = i;
+            break;
+        }
+    }
+    if (echo_id == 0xFFFFFFFF)
+        return false;
+
+    // request echo id
+    echo_id_pool = atomic_fetch_or(&handle->channels[channel].echo_id_pool, 1 << echo_id);
+    if (echo_id_pool & (1 << echo_id))
+        return false;
+
     // calculate tx size
     struct gs_host_frame *hf;
     size_t hf_size_tx;
@@ -812,7 +838,7 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
     if (hf == NULL)
         return false;
 
-    hf->echo_id = frame->echo_id;
+    hf->echo_id = echo_id;
 
     hf->can_id = frame->can_id;
     if (frame->type & CANDLE_FRAME_TYPE_EFF)
