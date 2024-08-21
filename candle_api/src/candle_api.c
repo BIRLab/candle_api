@@ -21,7 +21,7 @@ struct candle_channel_handle {
     fifo_t *rx_fifo;
     cnd_t rx_cnd;
     mtx_t rx_cond_mtx;
-    atomic_uint echo_id_pool;
+    atomic_uint_fast32_t echo_id_pool;
 };
 
 struct candle_device_handle {

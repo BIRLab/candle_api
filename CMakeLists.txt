@@ -19,8 +19,12 @@ target_include_directories(candle_api PRIVATE candle_api/src)
 target_link_libraries(candle_api PRIVATE usb-1.0)
 set_target_properties(candle_api PROPERTIES POSITION_INDEPENDENT_CODE ON C_STANDARD 11)
 
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     target_compile_options(candle_api PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(candle_api PRIVATE /experimental:c11atomics)
 endif()
 
 if(CANDLE_API_BUILD_EXAMPLES)
