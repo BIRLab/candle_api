@@ -7,7 +7,7 @@
 #include <string.h>
 #include <threads.h>
 
-static const size_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
+static const uint8_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 static struct libusb_context *ctx = NULL;
 static LIST_HEAD(device_list);
 static size_t open_device_count;
@@ -74,7 +74,7 @@ static void receive_bulk_callback(struct libusb_transfer *transfer) {
 
     switch (transfer->status) {
         case LIBUSB_TRANSFER_COMPLETED:
-            if (handle->channels[ch].is_start) {
+            if (ch < handle->device->channel_count && handle->channels[ch].is_start) {
                 fifo_put(handle->channels[ch].rx_fifo, hf);
                 mtx_lock(&handle->channels[ch].rx_cond_mtx);
                 cnd_signal(&handle->channels[ch].rx_cnd);
@@ -99,9 +99,6 @@ static void transmit_bulk_callback(struct libusb_transfer *transfer) {
 
     switch (transfer->status) {
         case LIBUSB_TRANSFER_COMPLETED:
-            free(transfer->buffer);
-            libusb_free_transfer(transfer);
-            break;
         case LIBUSB_TRANSFER_CANCELLED:
             free(transfer->buffer);
             libusb_free_transfer(transfer);
@@ -378,7 +375,7 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
                 for (int j = 0; j < channel_count; ++j) {
                     handle->channels[j].is_start = false;
                     handle->channels[j].mode = CANDLE_MODE_NORMAL;
-                    handle->channels[j].rx_fifo = fifo_create((char)rx_size, 10);
+                    handle->channels[j].rx_fifo = fifo_create((char)rx_size, 1024); // no more than 81920 bytes plus sizeof(fifo_t)
                     cnd_init(&handle->channels[j].rx_cnd);
                     mtx_init(&handle->channels[j].rx_cond_mtx, mtx_plain);
                 }
@@ -580,14 +577,22 @@ void candle_close_device(struct candle_device *device) {
 
     // reset channel (best efforts)
     struct gs_device_mode md = {.mode = 0};
+    int rc;
     for (int i = 0; i < device->channel_count; ++i) {
-        libusb_control_transfer(handle->usb_device_handle,
-                                LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
-                                GS_USB_BREQ_MODE, i, 0, (uint8_t *) &md, sizeof(md), 1000);
+        rc = libusb_control_transfer(handle->usb_device_handle,
+                                     LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
+                                     GS_USB_BREQ_MODE, i, 0, (uint8_t *) &md, sizeof(md), 1000);
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            device->is_connected = false;
+        fifo_flush(handle->channels[i].rx_fifo);
+        handle->channels[i].mode = CANDLE_MODE_NORMAL;
+        handle->channels[i].is_start = false;
     }
 
     // release interface
-    libusb_release_interface(handle->usb_device_handle, 0);
+    rc = libusb_release_interface(handle->usb_device_handle, 0);
+    if (rc == LIBUSB_ERROR_NO_DEVICE)
+        device->is_connected = false;
 
     // close usb device
     before_libusb_close_hook();
@@ -606,6 +611,9 @@ void candle_close_device(struct candle_device *device) {
 
 bool candle_reset_channel(struct candle_device *device, uint8_t channel) {
     struct candle_device_handle *handle = device->handle;
+
+    if (channel >= device->channel_count)
+        return false;
 
     if (!device->is_open)
         return false;
@@ -630,6 +638,9 @@ bool candle_reset_channel(struct candle_device *device, uint8_t channel) {
 bool candle_start_channel(struct candle_device *device, uint8_t channel, enum candle_mode mode) {
     struct candle_device_handle *handle = device->handle;
 
+    if (channel >= device->channel_count)
+        return false;
+
     if (!device->is_open)
         return false;
 
@@ -652,6 +663,9 @@ bool candle_start_channel(struct candle_device *device, uint8_t channel, enum ca
 bool candle_set_bit_timing(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
     struct candle_device_handle *handle = device->handle;
 
+    if (channel >= device->channel_count)
+        return false;
+
     if (!device->is_open)
         return false;
 
@@ -671,6 +685,9 @@ bool candle_set_bit_timing(struct candle_device *device, uint8_t channel, struct
 bool candle_set_data_bit_timing(struct candle_device *device, uint8_t channel, struct candle_bit_timing *bit_timing) {
     struct candle_device_handle *handle = device->handle;
 
+    if (channel >= device->channel_count)
+        return false;
+
     if (!device->is_open)
         return false;
 
@@ -689,6 +706,9 @@ bool candle_set_data_bit_timing(struct candle_device *device, uint8_t channel, s
 
 bool candle_get_termination(struct candle_device *device, uint8_t channel, bool *enable) {
     struct candle_device_handle *handle = device->handle;
+
+    if (channel >= device->channel_count)
+        return false;
 
     if (!device->is_open)
         return false;
@@ -713,6 +733,9 @@ bool candle_get_termination(struct candle_device *device, uint8_t channel, bool 
 bool candle_set_termination(struct candle_device *device, uint8_t channel, bool enable) {
     struct candle_device_handle *handle = device->handle;
 
+    if (channel >= device->channel_count)
+        return false;
+
     if (!device->is_open)
         return false;
 
@@ -731,6 +754,9 @@ bool candle_set_termination(struct candle_device *device, uint8_t channel, bool 
 
 bool candle_get_state(struct candle_device *device, uint8_t channel, struct candle_state *state) {
     struct candle_device_handle *handle = device->handle;
+
+    if (channel >= device->channel_count)
+        return false;
 
     if (!device->is_open)
         return false;
@@ -754,15 +780,19 @@ bool candle_get_state(struct candle_device *device, uint8_t channel, struct cand
 bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
     struct candle_device_handle *handle = device->handle;
 
+    if (channel >= device->channel_count)
+        return false;
+
     if (!handle->channels[channel].is_start)
         return false;
 
-    if (frame->can_dlc > 15)
+    if (frame->can_dlc >= ARRAY_SIZE(dlc2len))
         return false;
 
     if (frame->type & CANDLE_FRAME_TYPE_FD && !(device->channels[channel].feature & CANDLE_FEATURE_FD))
         return false;
 
+    // calculate tx size
     struct gs_host_frame *hf;
     size_t hf_size_tx;
     if (frame->type & CANDLE_FRAME_TYPE_FD) {
@@ -776,6 +806,8 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
         else
             hf_size_tx = struct_size(hf, classic_can, 1);
     }
+
+    // allocate frame buffer (buffer will be free in transmit_bulk_callback)
     hf = malloc(hf_size_tx);
     if (hf == NULL)
         return false;
@@ -810,13 +842,15 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
     else
         memcpy(hf->classic_can->data, frame->data, data_length);
 
+    // allocate transfer (transfer will be free in transmit_bulk_callback)
     struct libusb_transfer *transfer = libusb_alloc_transfer(0);
     if (transfer == NULL) {
         free(hf);
         return false;
     }
 
-    libusb_fill_bulk_transfer(transfer, handle->usb_device_handle, handle->out_ep, (uint8_t *) hf, (int) hf_size_tx,
+    // submit transfer
+    libusb_fill_bulk_transfer(transfer, handle->usb_device_handle, handle->out_ep, (uint8_t *)hf, (int)hf_size_tx,
                               transmit_bulk_callback, handle, 1000);
     int rc = libusb_submit_transfer(transfer);
     if (rc != LIBUSB_SUCCESS) {
@@ -832,10 +866,14 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
 bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
     struct candle_device_handle *handle = device->handle;
 
+    if (channel >= device->channel_count)
+        return false;
+
     if (!handle->channels[channel].is_start)
         return false;
 
     struct gs_host_frame *hf = alloca(handle->rx_size);
+
     if (fifo_get(handle->channels[channel].rx_fifo, hf) < 0)
         return false;
 
@@ -846,6 +884,12 @@ bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct 
 
 bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t milliseconds) {
     struct candle_device_handle *handle = device->handle;
+
+    if (channel >= device->channel_count)
+        return false;
+
+    if (!handle->channels[channel].is_start)
+        return false;
 
     MUTEX_LOCK(handle->channels[channel].rx_fifo->mutex);
     bool empty = fifo_is_empty(handle->channels[channel].rx_fifo);
@@ -873,6 +917,13 @@ bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t m
 
 bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
     struct candle_device_handle *handle = device->handle;
+
+    if (channel >= device->channel_count)
+        return false;
+
+    if (!handle->channels[channel].is_start)
+        return false;
+
     struct gs_host_frame *hf = alloca(handle->rx_size);
 
     MUTEX_LOCK(handle->channels[channel].rx_fifo->mutex);
