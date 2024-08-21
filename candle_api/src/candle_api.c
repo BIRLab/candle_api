@@ -801,22 +801,31 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
     if (frame->type & CANDLE_FRAME_TYPE_FD && !(device->channels[channel].feature & CANDLE_FEATURE_FD))
         return false;
 
-    // find available echo id
-    uint32_t echo_id_pool = atomic_load(&handle->channels[channel].echo_id_pool);
-    uint32_t echo_id = 0xFFFFFFFF;
-    for (int i = 0; i < 32; ++i) {
-        if (!(echo_id_pool & (1 << i))) {
-            echo_id = i;
+    // get echo id
+    uint32_t echo_id_pool;
+    uint32_t echo_id = 0;
+    while (true) {
+        // trying to preempt the echo id
+        echo_id_pool = atomic_fetch_or(&handle->channels[channel].echo_id_pool, 1 << echo_id);
+
+        // preempt the echo id
+        if (!(echo_id_pool & (1 << echo_id))) {
             break;
         }
-    }
-    if (echo_id == 0xFFFFFFFF)
-        return false;
 
-    // request echo id
-    echo_id_pool = atomic_fetch_or(&handle->channels[channel].echo_id_pool, 1 << echo_id);
-    if (echo_id_pool & (1 << echo_id))
-        return false;
+        // no echo id available
+        if (echo_id_pool == (uint32_t)(-1)) {
+            return false;
+        }
+
+        // find available echo id
+        for (int i = 0; i < 32; ++i) {
+            if (!(echo_id_pool & (1 << i))) {
+                echo_id = i;
+                break;
+            }
+        }
+    }
 
     // calculate tx size
     struct gs_host_frame *hf;
