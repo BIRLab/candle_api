@@ -93,9 +93,13 @@ static void receive_bulk_callback(struct libusb_transfer *transfer) {
         case LIBUSB_TRANSFER_CANCELLED:
             free(transfer->buffer);
             libusb_free_transfer(transfer);
+            handle->rx_transfer = NULL;
             break;
         case LIBUSB_TRANSFER_NO_DEVICE:
             handle->device->is_connected = false;
+            free(transfer->buffer);
+            libusb_free_transfer(transfer);
+            handle->rx_transfer = NULL;
             break;
         default:
             libusb_submit_transfer(transfer);
@@ -580,14 +584,13 @@ void candle_close_device(struct candle_device *device) {
         return;
 
     // cancel transfer (rx_transfer and buffer will be free in receive_bulk_callback)
-    int rc = libusb_cancel_transfer(handle->rx_transfer);
-    if (rc == LIBUSB_ERROR_NOT_FOUND && handle->rx_transfer != NULL) {
-        free(handle->rx_transfer->buffer);
-        libusb_free_transfer(handle->rx_transfer);
+    if (handle->rx_transfer != NULL) {
+        libusb_cancel_transfer(handle->rx_transfer);
+        handle->rx_transfer = NULL;
     }
-    handle->rx_transfer = NULL;
 
     // reset channel (best efforts)
+    int rc;
     struct gs_device_mode md = {.mode = 0};
     for (int i = 0; i < device->channel_count; ++i) {
         rc = libusb_control_transfer(handle->usb_device_handle,

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <threads.h>
+#include <unistd.h>
 
 
 static thrd_t receive_thread;
@@ -102,6 +103,7 @@ int main(int argc, char *argv[]) {
         for (int j = 0; j < 200000; ++j) {
             while ((dev->is_connected) && !candle_send_frame(dev, 0, &frame)) {
                 candle_wait_frame(dev, 0, 1000);
+                usleep(1000);
             }
         }
 
