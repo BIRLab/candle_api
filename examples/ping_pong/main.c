@@ -33,6 +33,7 @@ int main(int argc, char *argv[]) {
     if (!success)
         goto handle_error;
     if (device_list_size == 0) {
+        candle_free_device_list(device_list);
         printf("no device available\n");
         goto finalize;
     }

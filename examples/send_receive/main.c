@@ -19,6 +19,7 @@ int main(int argc, char *argv[]) {
     if (!success)
         goto handle_error;
     if (device_list_size == 0) {
+        candle_free_device_list(device_list);
         printf("no device available\n");
         goto finalize;
     }
@@ -48,7 +49,7 @@ int main(int argc, char *argv[]) {
         goto handle_error;
 
     // send message
-    struct candle_can_frame frame = {.type = 0, .can_id = 0, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
+    struct candle_can_frame frame = {.type = 0, .can_id = 123, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
     success = candle_send_frame(dev, 0, &frame);
     if (!success)
         goto handle_error;

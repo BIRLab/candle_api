@@ -38,10 +38,11 @@ struct candle_device_handle {
 };
 
 static int event_thread_func(void *arg) {
-    while (event_thread_run)
+    while (event_thread_run) {
         libusb_handle_events(arg);
-
-    return 0;
+        thrd_yield();
+    }
+    thrd_exit(0);
 }
 
 static void after_libusb_open_hook(void) {
@@ -64,8 +65,7 @@ static void before_libusb_close_hook(void) {
 static void after_libusb_close_hook(void) {
     if (open_device_count == 0) {
         // join event loop
-        int res;
-        thrd_join(event_thread, &res);
+        thrd_join(event_thread, NULL);
     }
 }
 
@@ -133,7 +133,7 @@ static void free_device(struct candle_device_handle* handle) {
         after_libusb_close_hook();
     }
     for (int i = 0; i < handle->device->channel_count; ++i) {
-        fifo_free(handle->channels[i].rx_fifo);
+        fifo_destroy(handle->channels[i].rx_fifo);
         cnd_destroy(&handle->channels[i].rx_cnd);
         mtx_destroy(&handle->channels[i].rx_cond_mtx);
     }
@@ -338,6 +338,7 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
                     if (!(ep_address & LIBUSB_ENDPOINT_IN) && ep_type & LIBUSB_ENDPOINT_TRANSFER_TYPE_BULK)
                         out_ep = ep_address;
                 }
+                libusb_free_config_descriptor(conf_desc);
                 if (!(in_ep && out_ep)) {
                     free(new_candle_device);
                     goto handle_error;
@@ -579,12 +580,15 @@ void candle_close_device(struct candle_device *device) {
         return;
 
     // cancel transfer (rx_transfer and buffer will be free in receive_bulk_callback)
-    libusb_cancel_transfer(handle->rx_transfer);
+    int rc = libusb_cancel_transfer(handle->rx_transfer);
+    if (rc == LIBUSB_ERROR_NOT_FOUND && handle->rx_transfer != NULL) {
+        free(handle->rx_transfer->buffer);
+        libusb_free_transfer(handle->rx_transfer);
+    }
     handle->rx_transfer = NULL;
 
     // reset channel (best efforts)
     struct gs_device_mode md = {.mode = 0};
-    int rc;
     for (int i = 0; i < device->channel_count; ++i) {
         rc = libusb_control_transfer(handle->usb_device_handle,
                                      LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,

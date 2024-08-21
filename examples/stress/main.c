@@ -60,6 +60,7 @@ int main(int argc, char *argv[]) {
     if (!success)
         goto handle_error;
     if (device_list_size == 0) {
+        candle_free_device_list(device_list);
         printf("no device available\n");
         goto finalize;
     }
@@ -83,7 +84,7 @@ int main(int argc, char *argv[]) {
 
     // start stress test
     struct test_epoch e;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 10 && dev->is_connected; ++i) {
         printf("Test epoch %d\n", i + 1);
 
         // reset epoch
@@ -99,7 +100,9 @@ int main(int argc, char *argv[]) {
         // send message
         struct candle_can_frame frame = {.type = 0, .can_id = 0, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
         for (int j = 0; j < 100000; ++j) {
-            while (!candle_send_frame(dev, 0, &frame));
+            while ((dev->is_connected) && !candle_send_frame(dev, 0, &frame)) {
+                candle_wait_frame(dev, 0, 1000);
+            }
         }
 
         // interrupt
