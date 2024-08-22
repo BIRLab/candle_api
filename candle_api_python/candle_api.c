@@ -2,6 +2,100 @@
 #include <Python.h>
 #include "candle_api.h"
 
+/* CandleBitTimingConst */
+
+typedef struct {
+    PyObject_HEAD
+    struct candle_bit_timing_const bt_const;
+} CandleBitTimingConst_object;
+
+static PyObject *CandleChannel_get_tseg1_min_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.tseg1_min);
+}
+
+static PyObject *CandleChannel_get_tseg1_max_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.tseg1_max);
+}
+
+static PyObject *CandleChannel_get_tseg2_min_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.tseg2_min);
+}
+
+static PyObject *CandleChannel_get_tseg2_max_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.tseg2_max);
+}
+
+static PyObject *CandleChannel_get_sjw_max_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.sjw_max);
+}
+
+static PyObject *CandleChannel_get_brp_min_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.brp_min);
+}
+
+static PyObject *CandleChannel_get_brp_max_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.brp_max);
+}
+
+static PyObject *CandleChannel_get_brp_inc_property(PyObject *self, void *closure) {
+    CandleBitTimingConst_object *obj = (CandleBitTimingConst_object *)self;
+    return PyLong_FromLong((long)obj->bt_const.brp_inc);
+}
+
+static PyGetSetDef CandleBitTimingConst_getset[] = {
+    {
+        .name = "tseg1_min",
+        .get = CandleChannel_get_tseg1_min_property
+    },
+    {
+        .name = "tseg1_max",
+        .get = CandleChannel_get_tseg1_max_property
+    },
+    {
+        .name = "tseg2_min",
+        .get = CandleChannel_get_tseg2_min_property
+    },
+    {
+        .name = "tseg2_max",
+        .get = CandleChannel_get_tseg2_max_property
+    },
+    {
+        .name = "sjw_max",
+        .get = CandleChannel_get_sjw_max_property
+    },
+    {
+        .name = "brp_min",
+        .get = CandleChannel_get_brp_min_property
+    },
+    {
+        .name = "brp_max",
+        .get = CandleChannel_get_brp_max_property
+    },
+    {
+        .name = "brp_inc",
+        .get = CandleChannel_get_brp_inc_property
+    },
+    {NULL}
+};
+
+static PyTypeObject CandleBitTimingConstType = {
+    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "candle_api.CandleBitTimingConst",
+    .tp_basicsize = sizeof(CandleBitTimingConst_object),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_getset = CandleBitTimingConst_getset
+};
+
+/* CandleChannel */
+
 typedef struct {
     PyObject_HEAD
     struct candle_device *dev;
@@ -16,19 +110,71 @@ static void CandleChannel_dealloc(PyObject *self) {
     Py_TYPE(self)->tp_free(self);
 }
 
+static PyObject *CandleChannel_get_feature_property(PyObject *self, void *closure) {
+    CandleChannel_object *obj = (CandleChannel_object *)self;
+    return PyLong_FromLong(obj->dev->channels[obj->ch].feature);
+}
+
+static PyObject *CandleChannel_get_clock_frequency_property(PyObject *self, void *closure) {
+    CandleChannel_object *obj = (CandleChannel_object *)self;
+    return PyLong_FromLong((long)obj->dev->channels[obj->ch].clock_frequency);
+}
+
+static PyObject *CandleChannel_get_nominal_bit_timing_property(PyObject *self, void *closure) {
+    CandleChannel_object *obj = (CandleChannel_object *)self;
+
+    CandleBitTimingConst_object *bt_obj = (CandleBitTimingConst_object*)PyObject_New(CandleBitTimingConst_object, &CandleBitTimingConstType);
+    if (bt_obj == NULL)
+        return NULL;
+
+    bt_obj->bt_const = obj->dev->channels[obj->ch].bit_timing_const.nominal;
+
+    return (PyObject*)bt_obj;
+}
+
+static PyObject *CandleChannel_get_data_bit_timing_property(PyObject *self, void *closure) {
+    CandleChannel_object *obj = (CandleChannel_object *)self;
+
+    CandleBitTimingConst_object *bt_obj = (CandleBitTimingConst_object*)PyObject_New(CandleBitTimingConst_object, &CandleBitTimingConstType);
+    if (bt_obj == NULL)
+        return NULL;
+
+    bt_obj->bt_const = obj->dev->channels[obj->ch].bit_timing_const.data;
+
+    return (PyObject*)bt_obj;
+}
+
 static PyGetSetDef CandleChannel_getset[] = {
+    {
+        .name = "feature",
+        .get = CandleChannel_get_feature_property
+    },
+    {
+        .name = "clock_frequency",
+        .get = CandleChannel_get_clock_frequency_property
+    },
+    {
+        .name = "nominal_bit_timing",
+        .get = CandleChannel_get_nominal_bit_timing_property
+    },
+    {
+        .name = "data_bit_timing",
+        .get = CandleChannel_get_data_bit_timing_property
+    },
     {NULL}
 };
 
 static PyTypeObject CandleChannelType = {
-        .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
-        .tp_name = "candle_api.CandleChannel",
-        .tp_basicsize = sizeof(CandleChannel_object),
-        .tp_itemsize = 0,
-        .tp_flags = Py_TPFLAGS_DEFAULT,
-        .tp_dealloc = CandleChannel_dealloc,
-        .tp_getset = CandleChannel_getset
+    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "candle_api.CandleChannel",
+    .tp_basicsize = sizeof(CandleChannel_object),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_dealloc = CandleChannel_dealloc,
+    .tp_getset = CandleChannel_getset
 };
+
+/* CandleDevice */
 
 typedef struct {
     PyObject_HEAD
@@ -94,12 +240,12 @@ static PyObject *CandleDevice_get_channel_count_property(PyObject *self, void *c
 
 static PyObject *CandleDevice_get_software_version_property(PyObject *self, void *closure) {
     CandleDevice_object *obj = (CandleDevice_object *)self;
-    return PyLong_FromLong(obj->dev->software_version);
+    return PyLong_FromLong((long)obj->dev->software_version);
 }
 
 static PyObject *CandleDevice_get_hardware_version_property(PyObject *self, void *closure) {
     CandleDevice_object *obj = (CandleDevice_object *)self;
-    return PyLong_FromLong(obj->dev->hardware_version);
+    return PyLong_FromLong((long)obj->dev->hardware_version);
 }
 
 static PyGetSetDef CandleDevice_getset[] = {
@@ -175,6 +321,33 @@ static PySequenceMethods CandleDevice_as_sequence = {
     .sq_item = CandleDevice_getitem,
 };
 
+static PyObject *CandleDevice_open(CandleDevice_object *self, PyObject *Py_UNUSED(ignored))
+{
+    if (candle_open_device(self->dev))
+        Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+}
+
+static PyObject *CandleDevice_close(CandleDevice_object *self, PyObject *Py_UNUSED(ignored))
+{
+    candle_close_device(self->dev);
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef CandleDevice_methods[] = {
+    {
+        .ml_name = "open",
+        .ml_meth = (PyCFunction)CandleDevice_open,
+        .ml_flags = METH_NOARGS
+    },
+    {
+        .ml_name = "close",
+        .ml_meth = (PyCFunction)CandleDevice_close,
+        .ml_flags = METH_NOARGS
+    },
+    {NULL}
+};
+
 static PyTypeObject CandleDeviceType = {
     .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleDevice",
@@ -183,8 +356,11 @@ static PyTypeObject CandleDeviceType = {
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_dealloc = CandleDevice_dealloc,
     .tp_getset = CandleDevice_getset,
-    .tp_as_sequence = &CandleDevice_as_sequence
+    .tp_as_sequence = &CandleDevice_as_sequence,
+    .tp_methods = CandleDevice_methods
 };
+
+/* candle_api */
 
 static PyObject *list_device(PyObject *self, PyObject *args)
 {
@@ -224,11 +400,11 @@ void cleanup(void *module) {
 }
 
 static struct PyModuleDef candle_api_module = {
-        .m_base = PyModuleDef_HEAD_INIT,
-        .m_name = "candle_api",
-        .m_size = -1,
-        .m_methods = candle_api_methods,
-        .m_free = cleanup,
+    .m_base = PyModuleDef_HEAD_INIT,
+    .m_name = "candle_api",
+    .m_size = -1,
+    .m_methods = candle_api_methods,
+    .m_free = cleanup,
 };
 
 PyMODINIT_FUNC PyInit_candle_api(void)
@@ -238,19 +414,22 @@ PyMODINIT_FUNC PyInit_candle_api(void)
     if (candle_initialize() != true)
         return NULL;
 
-    if (PyType_Ready(&CandleDeviceType) < 0)
+    if (PyType_Ready(&CandleBitTimingConstType) < 0)
         return NULL;
 
     if (PyType_Ready(&CandleChannelType) < 0)
+        return NULL;
+
+    if (PyType_Ready(&CandleDeviceType) < 0)
         return NULL;
 
     m = PyModule_Create(&candle_api_module);
     if (m == NULL)
         return NULL;
 
-    Py_INCREF(&CandleDeviceType);
-    if (PyModule_AddObject(m, "CandleDevice", (PyObject *)&CandleDeviceType) < 0) {
-        Py_DECREF(&CandleDeviceType);
+    Py_INCREF(&CandleBitTimingConstType);
+    if (PyModule_AddObject(m, "CandleBitTimingConstType", (PyObject *)&CandleBitTimingConstType) < 0) {
+        Py_DECREF(&CandleBitTimingConstType);
         Py_DECREF(m);
         return NULL;
     }
@@ -258,6 +437,13 @@ PyMODINIT_FUNC PyInit_candle_api(void)
     Py_INCREF(&CandleChannelType);
     if (PyModule_AddObject(m, "CandleChannel", (PyObject *)&CandleChannelType) < 0) {
         Py_DECREF(&CandleChannelType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    Py_INCREF(&CandleDeviceType);
+    if (PyModule_AddObject(m, "CandleDevice", (PyObject *)&CandleDeviceType) < 0) {
+        Py_DECREF(&CandleDeviceType);
         Py_DECREF(m);
         return NULL;
     }
