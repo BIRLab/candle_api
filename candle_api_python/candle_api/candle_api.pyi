@@ -1,3 +1,6 @@
+from collections.abc import Buffer
+
+
 class CandleMode:
     def __init__(self, listen_only: bool = False, loop_back: bool = False, triple_sample: bool = False, one_shot: bool = False, hardware_timestamp: bool = False, pad_package: bool = False, fd: bool = False, bit_error_reporting: bool = False) -> None:
         ...
@@ -12,6 +15,44 @@ class CandleFrameType:
         self.fd = fd
         self.bitrate_switch = bitrate_switch
         self.error_state_indicator = error_state_indicator
+
+
+class CandleCanState:
+    ERROR_ACTIVE: CandleCanState
+    ERROR_WARNING: CandleCanState
+    ERROR_PASSIVE: CandleCanState
+    BUS_OFF: CandleCanState
+    STOPPED: CandleCanState
+    SLEEPING: CandleCanState
+
+    def __eq__(self, other: CandleCanState) -> bool:
+        ...
+
+
+class CandleState:
+    @property
+    def state(self) -> CandleCanState:
+        ...
+
+    @property
+    def rx_error_count(self) -> int:
+        ...
+
+    @property
+    def tx_error_count(self) -> int:
+        ...
+
+
+class CandleCanFrame:
+    def __init__(self, frame_type: CandleFrameType, can_id: int, can_dlc: int, data: Buffer) -> None:
+        self.frame_type = frame_type
+        self.can_id = can_id
+        self.can_dlc = can_dlc
+        self.data = data
+
+    @property
+    def timestamp(self) -> float:
+        ...
 
 
 class CandleFeature:

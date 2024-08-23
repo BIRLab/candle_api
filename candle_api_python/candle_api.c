@@ -77,14 +77,14 @@ typedef struct {
 static int CandleFrameType_init(CandleFrameType_object *self, PyObject *args, PyObject *kwargs)
 {
     static char *kwlist[] = {
-            "rx",
-            "extended_id",
-            "remote_frame",
-            "error_frame",
-            "fd",
-            "bitrate_switch",
-            "error_state_indicator",
-            NULL
+        "rx",
+        "extended_id",
+        "remote_frame",
+        "error_frame",
+        "fd",
+        "bitrate_switch",
+        "error_state_indicator",
+        NULL
     };
     int parsed_args[8] = {0, 0, 0, 0, 0, 0, 0};
 
@@ -163,12 +163,204 @@ static PyTypeObject CandleFrameTypeType = {
 
 /* CandleCanState */
 
+typedef struct {
+    PyObject_HEAD
+    enum candle_can_state can_state;
+} CandleCanState_object;
+
+static PyObject* CandleCanState_richcompare(PyObject* self, PyObject* other, int op) {
+    if (op != Py_EQ) {
+        Py_RETURN_NOTIMPLEMENTED;
+    }
+
+    if (!PyObject_TypeCheck(other, Py_TYPE(self))) {
+        Py_RETURN_NOTIMPLEMENTED;
+    }
+
+    CandleCanState_object* self_obj = (CandleCanState_object*)self;
+    CandleCanState_object* other_obj = (CandleCanState_object*)other;
+
+    if (self_obj->can_state == other_obj->can_state) {
+        Py_RETURN_TRUE;
+    } else {
+        Py_RETURN_FALSE;
+    }
+}
+
+static PyTypeObject CandleCanStateType = {
+    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "candle_api.CandleCanState",
+    .tp_basicsize = sizeof(CandleCanState_object),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_richcompare = CandleCanState_richcompare
+};
+
+/* CandleState */
+
+typedef struct {
+    PyObject_HEAD
+    struct candle_state state;
+} CandleState_object;
+
+static PyObject *CandleState_get_state_property(CandleState_object *self, void *closure) {
+    CandleCanState_object *obj = (CandleCanState_object*)PyObject_New(CandleCanState_object, &CandleCanStateType);
+    if (obj == NULL)
+        return NULL;
+
+    obj->can_state = self->state.state;
+
+    return (PyObject*)obj;
+}
+
+static PyObject *CandleState_get_rx_error_count_property(CandleState_object *self, void *closure) {
+    return PyLong_FromLong((long)self->state.rxerr);
+}
+
+static PyObject *CandleState_get_tx_error_count_property(CandleState_object *self, void *closure) {
+    return PyLong_FromLong((long)self->state.txerr);
+}
+
+static PyGetSetDef CandleState_getset[] = {
+    {
+        .name = "state",
+        .get = (getter)CandleState_get_state_property
+    },
+    {
+        .name = "rx_error_count",
+        .get = (getter)CandleState_get_rx_error_count_property
+    },
+    {
+        .name = "tx_error_count",
+        .get = (getter)CandleState_get_tx_error_count_property
+    },
+    {NULL}
+};
+
+static PyTypeObject CandleStateType = {
+    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "candle_api.CandleState",
+    .tp_basicsize = sizeof(CandleCanState_object),
+    .tp_itemsize = 0,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_getset = CandleState_getset
+};
+
 /* CandleCanFrame */
+
+static const uint8_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 
 typedef struct {
     PyObject_HEAD
     struct candle_can_frame frame;
+    Py_ssize_t size;
 } CandleCanFrame_object;
+
+static int CandleCanFrame_init(CandleCanFrame_object *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {
+        "frame_type",
+        "can_id",
+        "can_dlc",
+        "data",
+        NULL
+    };
+
+    CandleFrameType_object *frame_type;
+    unsigned int can_id;
+    unsigned int can_dlc;
+    Py_buffer *data;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OIIy*", kwlist, &frame_type, &can_id, &can_dlc, &data))
+        return -1;
+
+    if (can_dlc > 15)
+        return -1;
+
+    self->size = dlc2len[can_dlc];
+    self->frame.type = frame_type->type;
+    self->frame.can_id = can_id;
+    self->frame.can_dlc = can_dlc;
+    memset(self->frame.data, 0, sizeof(self->frame.data));
+    memcpy(self->frame.data, data->buf, data->len < self->size ? data->len : self->size);
+
+    return 0;
+}
+
+static int CandleCanFrame_getbuffer(CandleCanFrame_object *self, Py_buffer *view, int flags) {
+    if (view == NULL) {
+        PyErr_SetString(PyExc_ValueError, "NULL view in getbuffer");
+        return -1;
+    }
+
+    view->buf = self->frame.data;
+    view->obj = (PyObject *)self;
+    view->len = self->size;
+    view->readonly = 0;
+    view->itemsize = 1;
+    view->ndim = 1;
+    view->format = NULL;
+    view->shape = &self->size;
+    view->strides = &view->itemsize;
+    view->suboffsets = NULL;
+    view->internal = NULL;
+
+    Py_INCREF(self);
+
+    return 0;
+}
+
+static PyBufferProcs CandleCanFrame_as_buffer = {
+    .bf_getbuffer = (getbufferproc)CandleCanFrame_getbuffer,
+    .bf_releasebuffer = NULL,
+};
+
+static PyObject *CandleCanFrame_get_type_property(CandleCanFrame_object *self, void *closure) {
+    CandleFrameType_object *ft_obj = (CandleFrameType_object*)PyObject_New(CandleFrameType_object, &CandleFrameTypeType);
+    if (ft_obj == NULL)
+        return NULL;
+
+    ft_obj->type = self->frame.type;
+
+    return (PyObject*)ft_obj;
+}
+
+static int CandleCanFrame_set_type_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
+    if (!PyObject_IsInstance(value, (PyObject*)&CandleFrameTypeType))
+        return -1;
+
+    self->frame.type = ((CandleFrameType_object *)value)->type;
+
+    return 0;
+}
+
+static PyObject *CandleCanFrame_get_can_id_property(CandleCanFrame_object *self, void *closure) {
+    return PyLong_FromLong((long)self->frame.can_id);
+}
+
+static int CandleCanFrame_set_can_id_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
+    if (!PyLong_Check(value))
+        return -1;
+
+    long can_id = PyLong_AsLong(value);
+    self->frame.can_id = can_id;
+
+    return 0;
+}
+
+static PyGetSetDef CandleCanFrame_getset[] = {
+    {
+        .name = "type",
+        .get = (getter)CandleCanFrame_get_type_property,
+        .set = (setter)CandleCanFrame_set_type_property
+    },
+    {
+        .name = "can_id",
+        .get = (getter)CandleCanFrame_get_can_id_property,
+        .set = (setter)CandleCanFrame_set_can_id_property
+    },
+    {NULL}
+};
 
 static PyTypeObject CandleCanFrameType = {
     .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
@@ -176,7 +368,10 @@ static PyTypeObject CandleCanFrameType = {
     .tp_basicsize = sizeof(CandleFrameType_object),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_new = PyType_GenericNew
+    .tp_new = PyType_GenericNew,
+    .tp_init = (initproc)CandleCanFrame_init,
+    .tp_as_buffer = &CandleCanFrame_as_buffer,
+    .tp_getset = CandleCanFrame_getset
 };
 
 /* CandleFeature */
@@ -661,7 +856,7 @@ static PyObject *list_device(PyObject *self, PyObject *args)
 }
 
 static PyMethodDef candle_api_methods[] = {
-        {"list_device", list_device, METH_NOARGS, "List all connected gs_usb devices."},
+        {"list_device", list_device, METH_NOARGS, NULL},
         {NULL, NULL, 0, NULL}
 };
 
@@ -685,6 +880,12 @@ PyMODINIT_FUNC PyInit_candle_api(void)
         return NULL;
 
     if (PyType_Ready(&CandleFrameTypeType) < 0)
+        return NULL;
+
+    if (PyType_Ready(&CandleCanStateType) < 0)
+        return NULL;
+
+    if (PyType_Ready(&CandleStateType) < 0)
         return NULL;
 
     if (PyType_Ready(&CandleCanFrameType) < 0)
@@ -712,6 +913,38 @@ PyMODINIT_FUNC PyInit_candle_api(void)
     Py_INCREF(&CandleFrameTypeType);
     if (PyModule_AddObject(m, "CandleFrameType", (PyObject *)&CandleFrameTypeType) < 0) {
         Py_DECREF(&CandleFrameTypeType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+    Py_INCREF(&CandleCanStateType);
+    if (PyModule_AddObject(m, "CandleCanState", (PyObject *)&CandleCanStateType) < 0) {
+        Py_DECREF(&CandleCanStateType);
+        Py_DECREF(m);
+        return NULL;
+    }
+
+#define ADD_CAN_STATE_ENUM(__name) \
+    can_state_enum = (CandleCanState_object*)PyObject_New(CandleCanState_object, &CandleCanStateType); \
+    if (can_state_enum == NULL) \
+        return NULL; \
+    can_state_enum->can_state = CANDLE_CAN_STATE_ ## __name; \
+    if (PyDict_SetItemString(CandleCanStateType.tp_dict, #__name, (PyObject *)can_state_enum) < 0) { \
+        Py_DECREF(can_state_enum); \
+        return NULL; \
+    }
+
+    CandleCanState_object *can_state_enum;
+    ADD_CAN_STATE_ENUM(ERROR_ACTIVE);
+    ADD_CAN_STATE_ENUM(ERROR_WARNING);
+    ADD_CAN_STATE_ENUM(ERROR_PASSIVE);
+    ADD_CAN_STATE_ENUM(BUS_OFF);
+    ADD_CAN_STATE_ENUM(STOPPED);
+    ADD_CAN_STATE_ENUM(SLEEPING);
+
+    Py_INCREF(&CandleStateType);
+    if (PyModule_AddObject(m, "CandleState", (PyObject *)&CandleStateType) < 0) {
+        Py_DECREF(&CandleStateType);
         Py_DECREF(m);
         return NULL;
     }
