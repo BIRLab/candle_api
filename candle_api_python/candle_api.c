@@ -269,21 +269,24 @@ static int CandleCanFrame_init(CandleCanFrame_object *self, PyObject *args, PyOb
     CandleFrameType_object *frame_type;
     unsigned int can_id;
     unsigned int can_dlc;
-    Py_buffer *data;
+    Py_buffer data;
 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "OIIy*", kwlist, &frame_type, &can_id, &can_dlc, &data))
         return -1;
 
-    if (can_dlc > 15)
+    if (can_dlc > 15) {
+        PyBuffer_Release(&data);
         return -1;
+    }
 
     self->size = dlc2len[can_dlc];
     self->frame.type = frame_type->type;
     self->frame.can_id = can_id;
     self->frame.can_dlc = can_dlc;
     memset(self->frame.data, 0, sizeof(self->frame.data));
-    memcpy(self->frame.data, data->buf, data->len < self->size ? data->len : self->size);
+    memcpy(self->frame.data, data.buf, data.len < self->size ? data.len : self->size);
 
+    PyBuffer_Release(&data);
     return 0;
 }
 
@@ -315,7 +318,7 @@ static PyBufferProcs CandleCanFrame_as_buffer = {
     .bf_releasebuffer = NULL,
 };
 
-static PyObject *CandleCanFrame_get_type_property(CandleCanFrame_object *self, void *closure) {
+static PyObject *CandleCanFrame_get_frame_type_property(CandleCanFrame_object *self, void *closure) {
     CandleFrameType_object *ft_obj = (CandleFrameType_object*)PyObject_New(CandleFrameType_object, &CandleFrameTypeType);
     if (ft_obj == NULL)
         return NULL;
@@ -325,7 +328,7 @@ static PyObject *CandleCanFrame_get_type_property(CandleCanFrame_object *self, v
     return (PyObject*)ft_obj;
 }
 
-static int CandleCanFrame_set_type_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
+static int CandleCanFrame_set_frame_type_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
     if (!PyObject_IsInstance(value, (PyObject*)&CandleFrameTypeType))
         return -1;
 
@@ -348,16 +351,48 @@ static int CandleCanFrame_set_can_id_property(CandleCanFrame_object *self, PyObj
     return 0;
 }
 
+static PyObject *CandleCanFrame_get_can_dlc_property(CandleCanFrame_object *self, void *closure) {
+    return PyLong_FromLong((long)self->frame.can_dlc);
+}
+
+static int CandleCanFrame_set_can_dlc_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
+    if (!PyLong_Check(value))
+        return -1;
+
+    long can_dlc = PyLong_AsLong(value);
+
+    if (can_dlc < 0 || can_dlc > 15)
+        return -1;
+
+    self->frame.can_dlc = can_dlc;
+    self->size = dlc2len[can_dlc];
+
+    return 0;
+}
+
+static PyObject *CandleCanFrame_get_timestamp_property(CandleCanFrame_object *self, void *closure) {
+    return PyFloat_FromDouble((double)self->frame.timestamp_us / 1e6);
+}
+
 static PyGetSetDef CandleCanFrame_getset[] = {
     {
-        .name = "type",
-        .get = (getter)CandleCanFrame_get_type_property,
-        .set = (setter)CandleCanFrame_set_type_property
+        .name = "frame_type",
+        .get = (getter)CandleCanFrame_get_frame_type_property,
+        .set = (setter)CandleCanFrame_set_frame_type_property
     },
     {
         .name = "can_id",
         .get = (getter)CandleCanFrame_get_can_id_property,
         .set = (setter)CandleCanFrame_set_can_id_property
+    },
+    {
+        .name = "can_dlc",
+        .get = (getter)CandleCanFrame_get_can_dlc_property,
+        .set = (setter)CandleCanFrame_set_can_dlc_property
+    },
+    {
+        .name = "timestamp",
+        .get = (getter)CandleCanFrame_get_timestamp_property
     },
     {NULL}
 };
@@ -365,7 +400,7 @@ static PyGetSetDef CandleCanFrame_getset[] = {
 static PyTypeObject CandleCanFrameType = {
     .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleCanFrame",
-    .tp_basicsize = sizeof(CandleFrameType_object),
+    .tp_basicsize = sizeof(CandleCanFrame_object),
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_new = PyType_GenericNew,
