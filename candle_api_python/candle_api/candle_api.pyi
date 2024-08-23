@@ -1,6 +1,3 @@
-from typing import Sequence
-
-
 class CandleMode:
     def __init__(self, listen_only: bool = False, loop_back: bool = False, triple_sample: bool = False, one_shot: bool = False, hardware_timestamp: bool = False, pad_package: bool = False, fd: bool = False, bit_error_reporting: bool = False) -> None:
         ...
@@ -111,7 +108,7 @@ class CandleChannel:
         ...
 
 
-class CandleDevice(Sequence[CandleChannel]):
+class CandleDevice:
 
     def __len__(self) -> int:
         ...
@@ -160,3 +157,7 @@ class CandleDevice(Sequence[CandleChannel]):
 
     def close(self) -> None:
         ...
+
+
+def list_device() -> list[CandleDevice]:
+    ...
