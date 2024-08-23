@@ -1,5 +1,12 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+
+#if PY_MAJOR_VERSION == 3 && PY_MINOR_VERSION < 12
+#include "structmember.h"
+#define Py_T_UINT T_UINT
+#define Py_READONLY READONLY
+#endif
+
 #include "candle_api.h"
 
 /* CandleMode */
