@@ -703,35 +703,35 @@ PyMODINIT_FUNC PyInit_candle_api(void)
         return NULL;
 
     Py_INCREF(&CandleFrameTypeType);
-    if (PyModule_AddObject(m, "CandleFrameTypeType", (PyObject *)&CandleFrameTypeType) < 0) {
+    if (PyModule_AddObject(m, "CandleFrameType", (PyObject *)&CandleFrameTypeType) < 0) {
         Py_DECREF(&CandleFrameTypeType);
         Py_DECREF(m);
         return NULL;
     }
 
     Py_INCREF(&CandleCanFrameType);
-    if (PyModule_AddObject(m, "CandleCanFrameType", (PyObject *)&CandleCanFrameType) < 0) {
+    if (PyModule_AddObject(m, "CandleCanFrame", (PyObject *)&CandleCanFrameType) < 0) {
         Py_DECREF(&CandleCanFrameType);
         Py_DECREF(m);
         return NULL;
     }
 
     Py_INCREF(&CandleModeType);
-    if (PyModule_AddObject(m, "CandleModeType", (PyObject *)&CandleModeType) < 0) {
+    if (PyModule_AddObject(m, "CandleMode", (PyObject *)&CandleModeType) < 0) {
         Py_DECREF(&CandleModeType);
         Py_DECREF(m);
         return NULL;
     }
 
     Py_INCREF(&CandleFeatureType);
-    if (PyModule_AddObject(m, "CandleFeatureType", (PyObject *)&CandleFeatureType) < 0) {
+    if (PyModule_AddObject(m, "CandleFeature", (PyObject *)&CandleFeatureType) < 0) {
         Py_DECREF(&CandleFeatureType);
         Py_DECREF(m);
         return NULL;
     }
 
     Py_INCREF(&CandleBitTimingConstType);
-    if (PyModule_AddObject(m, "CandleBitTimingConstType", (PyObject *)&CandleBitTimingConstType) < 0) {
+    if (PyModule_AddObject(m, "CandleBitTimingConst", (PyObject *)&CandleBitTimingConstType) < 0) {
         Py_DECREF(&CandleBitTimingConstType);
         Py_DECREF(m);
         return NULL;
