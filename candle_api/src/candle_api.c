@@ -251,9 +251,15 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
                 candle_dev.is_open = false;
                 candle_dev.vendor_id = desc.idVendor;
                 candle_dev.product_id = desc.idProduct;
-                libusb_get_string_descriptor_ascii(dev_handle, desc.iManufacturer, (uint8_t *) candle_dev.manufacturer, 256);
-                libusb_get_string_descriptor_ascii(dev_handle, desc.iProduct, (uint8_t *) candle_dev.product, 256);
-                libusb_get_string_descriptor_ascii(dev_handle, desc.iSerialNumber, (uint8_t *) candle_dev.serial_number, 256);
+                rc = libusb_get_string_descriptor_ascii(dev_handle, desc.iManufacturer, (uint8_t *) candle_dev.manufacturer, sizeof(candle_dev.manufacturer));
+                if (rc < 0)
+                    memset(candle_dev.manufacturer, 0, sizeof(candle_dev.manufacturer));
+                rc = libusb_get_string_descriptor_ascii(dev_handle, desc.iProduct, (uint8_t *) candle_dev.product, sizeof(candle_dev.product));
+                if (rc < 0)
+                    memset(candle_dev.manufacturer, 0, sizeof(candle_dev.product));
+                rc = libusb_get_string_descriptor_ascii(dev_handle, desc.iSerialNumber, (uint8_t *) candle_dev.serial_number, sizeof(candle_dev.serial_number));
+                if (rc < 0)
+                    memset(candle_dev.manufacturer, 0, sizeof(candle_dev.serial_number));
 
                 // send host config
                 struct gs_host_config hconf;
