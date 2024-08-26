@@ -131,6 +131,12 @@ static void free_device(struct candle_device_handle* handle) {
         libusb_cancel_transfer(handle->rx_transfer);
     }
     if (handle->usb_device_handle != NULL) {
+        struct gs_device_mode md = {.mode = 0};
+        for (int i = 0; i < handle->device->channel_count; ++i) {
+            libusb_control_transfer(handle->usb_device_handle,
+                                    LIBUSB_ENDPOINT_OUT | LIBUSB_REQUEST_TYPE_VENDOR | LIBUSB_RECIPIENT_INTERFACE,
+                                    GS_USB_BREQ_MODE, i, 0, (uint8_t *) &md, sizeof(md), 1000);
+        }
         libusb_release_interface(handle->usb_device_handle, 0);
         before_libusb_close_hook();
         libusb_close(handle->usb_device_handle);

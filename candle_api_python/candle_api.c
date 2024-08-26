@@ -684,7 +684,6 @@ typedef struct {
 static void CandleDevice_dealloc(PyObject *self) {
     CandleDevice_object *obj = (CandleDevice_object *)self;
 
-    candle_close_device(obj->dev);
     candle_unref_device(obj->dev);
 
     Py_TYPE(self)->tp_free(self);
@@ -823,14 +822,19 @@ static PySequenceMethods CandleDevice_as_sequence = {
 
 static PyObject *CandleDevice_open(CandleDevice_object *self, PyObject *Py_UNUSED(ignored))
 {
-    if (candle_open_device(self->dev))
+    if (candle_open_device(self->dev)) {
+        candle_unref_device(self->dev);
         Py_RETURN_TRUE;
+    }
     Py_RETURN_FALSE;
 }
 
 static PyObject *CandleDevice_close(CandleDevice_object *self, PyObject *Py_UNUSED(ignored))
 {
-    candle_close_device(self->dev);
+    if (self->dev->is_open) {
+        candle_ref_device(self->dev);
+        candle_close_device(self->dev);
+    }
     Py_RETURN_NONE;
 }
 
