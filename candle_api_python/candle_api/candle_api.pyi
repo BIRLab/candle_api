@@ -1,4 +1,5 @@
 from collections.abc import Buffer
+from typing import Optional
 
 
 class CandleMode:
@@ -52,6 +53,12 @@ class CandleCanFrame:
 
     @property
     def timestamp(self) -> float:
+        ...
+
+    def __buffer__(self, flags: int) -> memoryview:
+        ...
+
+    def __release_buffer__(self, view: memoryview) -> None:
         ...
 
 
@@ -132,6 +139,8 @@ class CandleBitTimingConst:
 
 
 class CandleChannel:
+    termination: bool
+
     @property
     def feature(self) -> CandleFeature:
         ...
@@ -141,11 +150,39 @@ class CandleChannel:
         ...
 
     @property
-    def nominal_bit_timing(self) -> CandleBitTimingConst:
+    def nominal_bit_timing_const(self) -> CandleBitTimingConst:
         ...
 
     @property
-    def data_bit_timing(self) -> CandleBitTimingConst:
+    def data_bit_timing_const(self) -> CandleBitTimingConst:
+        ...
+
+    @property
+    def state(self) -> CandleState:
+        ...
+
+    def reset(self) -> bool:
+        ...
+
+    def start(self, mode: CandleMode) -> bool:
+        ...
+
+    def set_bit_timing(self, prop_seg: int, phase_seg1: int, phase_seg2: int, sjw: int, brp: int) -> bool:
+        ...
+
+    def set_data_bit_timing(self, prop_seg: int, phase_seg1: int, phase_seg2: int, sjw: int, brp: int) -> bool:
+        ...
+
+    def send(self, frame: CandleCanFrame) -> bool:
+        ...
+
+    def receive(self) -> Optional[CandleCanFrame]:
+        ...
+
+    def wait_and_send(self, frame: CandleCanFrame, timeout: float) -> bool:
+        ...
+
+    def wait_and_receive(self, timeout: float) -> Optional[CandleCanFrame]:
         ...
 
 

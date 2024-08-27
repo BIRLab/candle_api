@@ -100,9 +100,7 @@ int main(int argc, char *argv[]) {
         // send message
         struct candle_can_frame frame = {.type = 0, .can_id = 0, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
         for (int j = 0; j < 200000; ++j) {
-            while ((dev->is_connected) && !candle_send_frame(dev, 0, &frame)) {
-                candle_wait_frame(dev, 0, 1000);
-            }
+            while ((dev->is_connected) && !candle_wait_and_send_frame(dev, 0, &frame, 1000));
         }
 
         // interrupt

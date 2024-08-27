@@ -22,6 +22,8 @@ struct candle_channel_handle {
     cnd_t rx_cnd;
     mtx_t rx_cond_mtx;
     atomic_uint_fast32_t echo_id_pool;
+    cnd_t echo_id_cnd;
+    mtx_t echo_id_cond_mtx;
 };
 
 struct candle_device_handle {
@@ -79,7 +81,10 @@ static void receive_bulk_callback(struct libusb_transfer *transfer) {
             if (ch < handle->device->channel_count && handle->channels[ch].is_start) {
                 // release echo id
                 if (hf->echo_id != 0xFFFFFFFF) {
+                    mtx_lock(&handle->channels[ch].echo_id_cond_mtx);
                     atomic_fetch_and(&handle->channels[ch].echo_id_pool, ~(1 << hf->echo_id));
+                    cnd_signal(&handle->channels[ch].echo_id_cnd);
+                    mtx_unlock(&handle->channels[ch].echo_id_cond_mtx);
                 }
 
                 // put in fifo
@@ -146,6 +151,8 @@ static void free_device(struct candle_device_handle* handle) {
         fifo_destroy(handle->channels[i].rx_fifo);
         cnd_destroy(&handle->channels[i].rx_cnd);
         mtx_destroy(&handle->channels[i].rx_cond_mtx);
+        cnd_destroy(&handle->channels[i].echo_id_cnd);
+        mtx_destroy(&handle->channels[i].echo_id_cond_mtx);
     }
     libusb_unref_device(handle->usb_device);
     free(handle->device);
@@ -184,6 +191,89 @@ static void convert_frame(struct gs_host_frame *hf, struct candle_can_frame *fra
         memcpy(frame->data, hf->classic_can->data, dlc2len[hf->can_dlc]);
         if (hw_timestamp)
             frame->timestamp_us = hf->classic_can_ts->timestamp_us;
+    }
+}
+
+bool send_frame(struct candle_device_handle* handle, uint8_t channel, struct candle_can_frame *frame, uint32_t echo_id) {
+    // calculate tx size
+    struct gs_host_frame *hf;
+    size_t hf_size_tx;
+    if (frame->type & CANDLE_FRAME_TYPE_FD) {
+        if (handle->device->channels[channel].feature & CANDLE_FEATURE_REQ_USB_QUIRK_LPC546XX)
+            hf_size_tx = struct_size(hf, canfd_quirk, 1);
+        else
+            hf_size_tx = struct_size(hf, canfd, 1);
+    } else {
+        if (handle->device->channels[channel].feature & CANDLE_FEATURE_REQ_USB_QUIRK_LPC546XX)
+            hf_size_tx = struct_size(hf, classic_can_quirk, 1);
+        else
+            hf_size_tx = struct_size(hf, classic_can, 1);
+    }
+
+    // allocate frame buffer (buffer will be free in transmit_bulk_callback)
+    hf = malloc(hf_size_tx);
+    if (hf == NULL)
+        return false;
+
+    hf->echo_id = echo_id;
+
+    hf->can_id = frame->can_id;
+    if (frame->type & CANDLE_FRAME_TYPE_EFF)
+        hf->can_id |= CAN_EFF_FLAG;
+    if (frame->type & CANDLE_FRAME_TYPE_RTR)
+        hf->can_id |= CAN_RTR_FLAG;
+    if (frame->type & CANDLE_FRAME_TYPE_ERR)
+        hf->can_id |= CAN_ERR_FLAG;
+
+    hf->can_dlc = frame->can_dlc;
+    hf->channel = channel;
+
+    hf->flags = 0;
+    if (frame->type & CANDLE_FRAME_TYPE_FD)
+        hf->flags |= GS_CAN_FLAG_FD;
+    if (frame->type & CANDLE_FRAME_TYPE_BRS)
+        hf->flags |= GS_CAN_FLAG_BRS;
+    if (frame->type & CANDLE_FRAME_TYPE_ESI)
+        hf->flags |= GS_CAN_FLAG_ESI;
+
+    hf->reserved = 0;
+
+    size_t data_length = dlc2len[frame->can_dlc];
+
+    if (frame->type & CANDLE_FRAME_TYPE_FD)
+        memcpy(hf->canfd->data, frame->data, data_length);
+    else
+        memcpy(hf->classic_can->data, frame->data, data_length);
+
+    // allocate transfer (transfer will be free in transmit_bulk_callback)
+    struct libusb_transfer *transfer = libusb_alloc_transfer(0);
+    if (transfer == NULL) {
+        free(hf);
+        return false;
+    }
+
+    // submit transfer
+    libusb_fill_bulk_transfer(transfer, handle->usb_device_handle, handle->out_ep, (uint8_t *)hf, (int)hf_size_tx,
+                              transmit_bulk_callback, handle, 1000);
+    int rc = libusb_submit_transfer(transfer);
+    if (rc != LIBUSB_SUCCESS) {
+        if (rc == LIBUSB_ERROR_NO_DEVICE)
+            handle->device->is_connected = false;
+        free(hf);
+        libusb_free_transfer(transfer);
+    }
+
+    return true;
+}
+
+void milliseconds_to_timespec(uint32_t milliseconds, struct timespec *ts) {
+    timespec_get(ts, TIME_UTC);
+    ts->tv_sec += milliseconds / 1000;
+    ts->tv_nsec += (long)(milliseconds % 1000) * 1000000;
+
+    if (ts->tv_nsec > 1000000000) {
+        ts->tv_nsec -= 1000000000;
+        ts->tv_sec += 1;
     }
 }
 
@@ -401,6 +491,8 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
                     handle->channels[j].rx_fifo = fifo_create((char)rx_size, 1024); // no more than 81920 bytes plus sizeof(fifo_t)
                     cnd_init(&handle->channels[j].rx_cnd);
                     mtx_init(&handle->channels[j].rx_cond_mtx, mtx_plain);
+                    cnd_init(&handle->channels[j].echo_id_cnd);
+                    mtx_init(&handle->channels[j].echo_id_cond_mtx, mtx_plain);
                     atomic_init(&handle->channels[j].echo_id_pool, 0);
                 }
 
@@ -846,75 +938,58 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
         }
     }
 
-    // calculate tx size
-    struct gs_host_frame *hf;
-    size_t hf_size_tx;
-    if (frame->type & CANDLE_FRAME_TYPE_FD) {
-        if (device->channels[channel].feature & CANDLE_FEATURE_REQ_USB_QUIRK_LPC546XX)
-            hf_size_tx = struct_size(hf, canfd_quirk, 1);
-        else
-            hf_size_tx = struct_size(hf, canfd, 1);
-    } else {
-        if (device->channels[channel].feature & CANDLE_FEATURE_REQ_USB_QUIRK_LPC546XX)
-            hf_size_tx = struct_size(hf, classic_can_quirk, 1);
-        else
-            hf_size_tx = struct_size(hf, classic_can, 1);
-    }
+    return send_frame(handle, channel, frame, echo_id);
+}
 
-    // allocate frame buffer (buffer will be free in transmit_bulk_callback)
-    hf = malloc(hf_size_tx);
-    if (hf == NULL)
+bool candle_wait_and_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
+    struct candle_device_handle *handle = device->handle;
+
+    struct timespec ts;
+    milliseconds_to_timespec(milliseconds, &ts);
+
+    if (channel >= device->channel_count)
         return false;
 
-    hf->echo_id = echo_id;
-
-    hf->can_id = frame->can_id;
-    if (frame->type & CANDLE_FRAME_TYPE_EFF)
-        hf->can_id |= CAN_EFF_FLAG;
-    if (frame->type & CANDLE_FRAME_TYPE_RTR)
-        hf->can_id |= CAN_RTR_FLAG;
-    if (frame->type & CANDLE_FRAME_TYPE_ERR)
-        hf->can_id |= CAN_ERR_FLAG;
-
-    hf->can_dlc = frame->can_dlc;
-    hf->channel = channel;
-
-    hf->flags = 0;
-    if (frame->type & CANDLE_FRAME_TYPE_FD)
-        hf->flags |= GS_CAN_FLAG_FD;
-    if (frame->type & CANDLE_FRAME_TYPE_BRS)
-        hf->flags |= GS_CAN_FLAG_BRS;
-    if (frame->type & CANDLE_FRAME_TYPE_ESI)
-        hf->flags |= GS_CAN_FLAG_ESI;
-
-    hf->reserved = 0;
-
-    size_t data_length = dlc2len[frame->can_dlc];
-
-    if (frame->type & CANDLE_FRAME_TYPE_FD)
-        memcpy(hf->canfd->data, frame->data, data_length);
-    else
-        memcpy(hf->classic_can->data, frame->data, data_length);
-
-    // allocate transfer (transfer will be free in transmit_bulk_callback)
-    struct libusb_transfer *transfer = libusb_alloc_transfer(0);
-    if (transfer == NULL) {
-        free(hf);
+    if (!handle->channels[channel].is_start)
         return false;
+
+    if (frame->can_dlc >= ARRAY_SIZE(dlc2len))
+        return false;
+
+    if (frame->type & CANDLE_FRAME_TYPE_FD && !(device->channels[channel].feature & CANDLE_FEATURE_FD))
+        return false;
+
+    // get echo id
+    uint32_t echo_id_pool;
+    uint32_t echo_id = 0;
+    while (true) {
+        // trying to preempt the echo id
+        echo_id_pool = atomic_fetch_or(&handle->channels[channel].echo_id_pool, 1 << echo_id);
+
+        // preempt the echo id
+        if (!(echo_id_pool & (1 << echo_id))) {
+            break;
+        }
+
+        // no echo id available
+        if (echo_id_pool == (uint32_t)(-1)) {
+            mtx_lock(&handle->channels[channel].echo_id_cond_mtx);
+            bool r = cnd_timedwait(&handle->channels[channel].echo_id_cnd, &handle->channels[channel].echo_id_cond_mtx, &ts) == thrd_success;
+            mtx_unlock(&handle->channels[channel].echo_id_cond_mtx);
+            if (r) echo_id_pool = atomic_load(&handle->channels[channel].echo_id_pool);
+            else return false;
+        }
+
+        // find available echo id
+        for (int i = 0; i < 32; ++i) {
+            if (!(echo_id_pool & (1 << i))) {
+                echo_id = i;
+                break;
+            }
+        }
     }
 
-    // submit transfer
-    libusb_fill_bulk_transfer(transfer, handle->usb_device_handle, handle->out_ep, (uint8_t *)hf, (int)hf_size_tx,
-                              transmit_bulk_callback, handle, 1000);
-    int rc = libusb_submit_transfer(transfer);
-    if (rc != LIBUSB_SUCCESS) {
-        if (rc == LIBUSB_ERROR_NO_DEVICE)
-            device->is_connected = false;
-        free(hf);
-        libusb_free_transfer(transfer);
-    }
-
-    return true;
+    return send_frame(handle, channel, frame, echo_id);
 }
 
 bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
@@ -934,39 +1009,6 @@ bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct 
     convert_frame(hf, frame, handle->channels[channel].mode & CANDLE_MODE_HW_TIMESTAMP);
 
     return true;
-}
-
-bool candle_wait_frame(struct candle_device *device, uint8_t channel, uint32_t milliseconds) {
-    struct candle_device_handle *handle = device->handle;
-
-    if (channel >= device->channel_count)
-        return false;
-
-    if (!handle->channels[channel].is_start)
-        return false;
-
-    MUTEX_LOCK(handle->channels[channel].rx_fifo->mutex);
-    bool empty = fifo_is_empty(handle->channels[channel].rx_fifo);
-    if (empty)
-        mtx_lock(&handle->channels[channel].rx_cond_mtx);
-    MUTEX_UNLOCK(handle->channels[channel].rx_fifo->mutex);
-
-    if (!empty)
-        return true;
-
-    struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    ts.tv_sec += milliseconds / 1000;
-    ts.tv_nsec += (long)(milliseconds % 1000) * 1000000;
-
-    if (ts.tv_nsec > 1000000000) {
-        ts.tv_nsec -= 1000000000;
-        ts.tv_sec += 1;
-    }
-
-    bool r = cnd_timedwait(&handle->channels[channel].rx_cnd, &handle->channels[channel].rx_cond_mtx, &ts) == thrd_success;
-    mtx_unlock(&handle->channels[channel].rx_cond_mtx);
-    return r;
 }
 
 bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
@@ -992,14 +1034,7 @@ bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel
     }
 
     struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
-    ts.tv_sec += milliseconds / 1000;
-    ts.tv_nsec += (long)(milliseconds % 1000) * 1000000;
-
-    if (ts.tv_nsec > 1000000000) {
-        ts.tv_nsec -= 1000000000;
-        ts.tv_sec += 1;
-    }
+    milliseconds_to_timespec(milliseconds, &ts);
 
     bool r = cnd_timedwait(&handle->channels[channel].rx_cnd, &handle->channels[channel].rx_cond_mtx, &ts) == thrd_success;
     if (r) r = fifo_get(handle->channels[channel].rx_fifo, hf) == 0;

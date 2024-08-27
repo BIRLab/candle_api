@@ -328,7 +328,7 @@ static PyObject *CandleCanFrame_get_frame_type_property(CandleCanFrame_object *s
     return (PyObject*)ft_obj;
 }
 
-static int CandleCanFrame_set_frame_type_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
+static int CandleCanFrame_set_frame_type_property(CandleCanFrame_object *self, PyObject* value, void *closure) {
     if (!PyObject_IsInstance(value, (PyObject*)&CandleFrameTypeType))
         return -1;
 
@@ -341,7 +341,7 @@ static PyObject *CandleCanFrame_get_can_id_property(CandleCanFrame_object *self,
     return PyLong_FromLong((long)self->frame.can_id);
 }
 
-static int CandleCanFrame_set_can_id_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
+static int CandleCanFrame_set_can_id_property(CandleCanFrame_object *self, PyObject* value, void *closure) {
     if (!PyLong_Check(value))
         return -1;
 
@@ -355,7 +355,7 @@ static PyObject *CandleCanFrame_get_can_dlc_property(CandleCanFrame_object *self
     return PyLong_FromLong((long)self->frame.can_dlc);
 }
 
-static int CandleCanFrame_set_can_dlc_property(CandleCanFrame_object *self, PyObject* value, void *closure) { \
+static int CandleCanFrame_set_can_dlc_property(CandleCanFrame_object *self, PyObject* value, void *closure) {
     if (!PyLong_Check(value))
         return -1;
 
@@ -620,7 +620,7 @@ static PyObject *CandleChannel_get_clock_frequency_property(PyObject *self, void
     return PyLong_FromLong((long)obj->dev->channels[obj->ch].clock_frequency);
 }
 
-static PyObject *CandleChannel_get_nominal_bit_timing_property(PyObject *self, void *closure) {
+static PyObject *CandleChannel_get_nominal_bit_timing_const_property(PyObject *self, void *closure) {
     CandleChannel_object *obj = (CandleChannel_object *)self;
 
     CandleBitTimingConst_object *bt_obj = (CandleBitTimingConst_object*)PyObject_New(CandleBitTimingConst_object, &CandleBitTimingConstType);
@@ -632,7 +632,7 @@ static PyObject *CandleChannel_get_nominal_bit_timing_property(PyObject *self, v
     return (PyObject*)bt_obj;
 }
 
-static PyObject *CandleChannel_get_data_bit_timing_property(PyObject *self, void *closure) {
+static PyObject *CandleChannel_get_data_bit_timing_const_property(PyObject *self, void *closure) {
     CandleChannel_object *obj = (CandleChannel_object *)self;
 
     CandleBitTimingConst_object *bt_obj = (CandleBitTimingConst_object*)PyObject_New(CandleBitTimingConst_object, &CandleBitTimingConstType);
@@ -642,6 +642,38 @@ static PyObject *CandleChannel_get_data_bit_timing_property(PyObject *self, void
     bt_obj->bt_const = obj->dev->channels[obj->ch].bit_timing_const.data;
 
     return (PyObject*)bt_obj;
+}
+
+static PyObject *CandleChannel_get_termination_property(CandleChannel_object *self, void *closure) {
+    bool enable;
+
+    if (!candle_get_termination(self->dev, self->ch, &enable))
+        PyErr_SetString(PyExc_RuntimeError, "Failed to get termination.");
+
+    return PyBool_FromLong(enable);
+}
+
+static int CandleChannel_set_termination_property(CandleChannel_object *self, PyObject* value, void *closure) {
+    bool enable = PyObject_IsTrue(value);
+
+    if (candle_set_termination(self->dev, self->ch, enable))
+        return 0;
+
+    return -1;
+}
+
+static PyObject *CandleChannel_get_state_property(CandleChannel_object *self, void *closure) {
+    struct candle_state state;
+    if (!candle_get_state(self->dev, self->ch, &state))
+        return NULL;
+
+    CandleState_object* obj = (CandleState_object*)PyObject_New(CandleState_object, &CandleStateType);
+    if (obj == NULL)
+        return NULL;
+
+    obj->state = state;
+
+    return (PyObject *)obj;
 }
 
 static PyGetSetDef CandleChannel_getset[] = {
@@ -654,12 +686,208 @@ static PyGetSetDef CandleChannel_getset[] = {
         .get = CandleChannel_get_clock_frequency_property
     },
     {
-        .name = "nominal_bit_timing",
-        .get = CandleChannel_get_nominal_bit_timing_property
+        .name = "nominal_bit_timing_const",
+        .get = CandleChannel_get_nominal_bit_timing_const_property
     },
     {
-        .name = "data_bit_timing",
-        .get = CandleChannel_get_data_bit_timing_property
+        .name = "data_bit_timing_const",
+        .get = CandleChannel_get_data_bit_timing_const_property
+    },
+    {
+        .name = "termination",
+        .get = (getter)CandleChannel_get_termination_property,
+        .set = (setter)CandleChannel_set_termination_property
+    },
+    {
+        .name = "state",
+        .get = (getter)CandleChannel_get_state_property
+    },
+    {NULL}
+};
+
+static PyObject *CandleChannel_reset(CandleChannel_object *self, PyObject *Py_UNUSED(ignored))
+{
+    if (candle_reset_channel(self->dev, self->ch))
+        Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+}
+
+static PyObject *CandleChannel_start(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {
+            "mode",
+            NULL
+    };
+
+    CandleMode_object *mode;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &mode))
+        return NULL;
+    if (candle_start_channel(self->dev, self->ch, mode->mode))
+        Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+}
+
+static PyObject *CandleChannel_set_bit_timing(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {
+            "prop_seg",
+            "phase_seg1",
+            "phase_seg2",
+            "sjw",
+            "brp",
+            NULL
+    };
+
+    uint32_t parsed_args[8];
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "IIIII", kwlist, &parsed_args[0], &parsed_args[1],
+                                     &parsed_args[2], &parsed_args[3], &parsed_args[4]))
+        return NULL;
+
+    struct candle_bit_timing bt = {.prop_seg = parsed_args[0], .phase_seg1 = parsed_args[1], .phase_seg2 = parsed_args[2], .sjw = parsed_args[3], .brp = parsed_args[4]};
+    if (candle_set_bit_timing(self->dev, self->ch, &bt))
+        Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+}
+
+static PyObject *CandleChannel_set_data_bit_timing(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {
+            "prop_seg",
+            "phase_seg1",
+            "phase_seg2",
+            "sjw",
+            "brp",
+            NULL
+    };
+
+    uint32_t parsed_args[8];
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "IIIII", kwlist, &parsed_args[0], &parsed_args[1],
+                                     &parsed_args[2], &parsed_args[3], &parsed_args[4]))
+        return NULL;
+
+    struct candle_bit_timing bt = {.prop_seg = parsed_args[0], .phase_seg1 = parsed_args[1], .phase_seg2 = parsed_args[2], .sjw = parsed_args[3], .brp = parsed_args[4]};
+    if (candle_set_data_bit_timing(self->dev, self->ch, &bt))
+        Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+}
+
+static PyObject *CandleChannel_send(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {
+            "frame",
+            NULL
+    };
+
+    CandleCanFrame_object *obj;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &obj))
+        return NULL;
+
+    if (candle_send_frame(self->dev, self->ch, &obj->frame))
+        Py_RETURN_TRUE;
+    Py_RETURN_FALSE;
+}
+
+static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *Py_UNUSED(ignored))
+{
+    CandleCanFrame_object* obj = (CandleCanFrame_object*)PyObject_New(CandleCanFrame_object, &CandleCanFrameType);
+    if (obj == NULL)
+        return NULL;
+
+    if (!candle_receive_frame(self->dev, self->ch, &obj->frame)) {
+        Py_DECREF(obj);
+        Py_RETURN_NONE;
+    }
+
+    return (PyObject*)obj;
+}
+
+static PyObject *CandleChannel_wait_and_send(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {
+        "frame",
+        "timeout",
+        NULL
+    };
+
+    CandleCanFrame_object *obj;
+    double timeout;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "Od", kwlist, &obj, &timeout))
+        return NULL;
+
+    if (timeout < 0)
+        timeout = 0;
+
+    if (candle_wait_and_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
+        Py_RETURN_TRUE;
+
+    Py_RETURN_FALSE;
+}
+
+static PyObject *CandleChannel_wait_and_receive(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+{
+    static char *kwlist[] = {
+            "timeout",
+            NULL
+    };
+
+    double timeout;
+    if (!PyArg_ParseTupleAndKeywords(args, kwargs, "d", kwlist, &timeout))
+        return NULL;
+
+    if (timeout < 0)
+        timeout = 0;
+
+    CandleCanFrame_object* obj = (CandleCanFrame_object*)PyObject_New(CandleCanFrame_object, &CandleCanFrameType);
+    if (obj == NULL)
+        return NULL;
+
+    if (candle_wait_and_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
+        return (PyObject*)obj;
+
+    Py_DECREF(obj);
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef CandleChannel_methods[] = {
+    {
+        .ml_name = "reset",
+        .ml_meth = (PyCFunction)CandleChannel_reset,
+        .ml_flags = METH_NOARGS
+    },
+    {
+        .ml_name = "start",
+        .ml_meth = (PyCFunction)CandleChannel_start,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS
+    },
+    {
+        .ml_name = "set_bit_timing",
+        .ml_meth = (PyCFunction)CandleChannel_set_bit_timing,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS
+    },
+    {
+        .ml_name = "set_data_bit_timing",
+        .ml_meth = (PyCFunction)CandleChannel_set_data_bit_timing,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS
+    },
+    {
+        .ml_name = "send",
+        .ml_meth = (PyCFunction)CandleChannel_send,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS
+    },
+    {
+        .ml_name = "receive",
+        .ml_meth = (PyCFunction)CandleChannel_receive,
+        .ml_flags = METH_NOARGS
+    },
+    {
+        .ml_name = "wait_and_send",
+        .ml_meth = (PyCFunction)CandleChannel_wait_and_send,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS
+    },
+    {
+        .ml_name = "wait_and_receive",
+        .ml_meth = (PyCFunction)CandleChannel_wait_and_receive,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS
     },
     {NULL}
 };
@@ -671,7 +899,8 @@ static PyTypeObject CandleChannelType = {
     .tp_itemsize = 0,
     .tp_flags = Py_TPFLAGS_DEFAULT,
     .tp_dealloc = CandleChannel_dealloc,
-    .tp_getset = CandleChannel_getset
+    .tp_getset = CandleChannel_getset,
+    .tp_methods = CandleChannel_methods
 };
 
 /* CandleDevice */
