@@ -771,7 +771,7 @@ static PyObject *CandleChannel_set_data_bit_timing(CandleChannel_object *self, P
     Py_RETURN_FALSE;
 }
 
-static PyObject *CandleChannel_send(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+static PyObject *CandleChannel_send_nowait(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
 {
     static char *kwlist[] = {
             "frame",
@@ -782,18 +782,18 @@ static PyObject *CandleChannel_send(CandleChannel_object *self, PyObject *args, 
     if (!PyArg_ParseTupleAndKeywords(args, kwargs, "O", kwlist, &obj))
         return NULL;
 
-    if (candle_send_frame(self->dev, self->ch, &obj->frame))
+    if (candle_send_frame_nowait(self->dev, self->ch, &obj->frame))
         Py_RETURN_TRUE;
     Py_RETURN_FALSE;
 }
 
-static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *Py_UNUSED(ignored))
+static PyObject *CandleChannel_receive_nowait(CandleChannel_object *self, PyObject *Py_UNUSED(ignored))
 {
     CandleCanFrame_object* obj = (CandleCanFrame_object*)PyObject_New(CandleCanFrame_object, &CandleCanFrameType);
     if (obj == NULL)
         return NULL;
 
-    if (!candle_receive_frame(self->dev, self->ch, &obj->frame)) {
+    if (!candle_receive_frame_nowait(self->dev, self->ch, &obj->frame)) {
         Py_DECREF(obj);
         Py_RETURN_NONE;
     }
@@ -801,7 +801,7 @@ static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *Py_
     return (PyObject*)obj;
 }
 
-static PyObject *CandleChannel_wait_and_send(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+static PyObject *CandleChannel_send(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
 {
     static char *kwlist[] = {
         "frame",
@@ -817,13 +817,13 @@ static PyObject *CandleChannel_wait_and_send(CandleChannel_object *self, PyObjec
     if (timeout < 0)
         timeout = 0;
 
-    if (candle_wait_and_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
+    if (candle_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
         Py_RETURN_TRUE;
 
     Py_RETURN_FALSE;
 }
 
-static PyObject *CandleChannel_wait_and_receive(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
+static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
 {
     static char *kwlist[] = {
             "timeout",
@@ -841,7 +841,7 @@ static PyObject *CandleChannel_wait_and_receive(CandleChannel_object *self, PyOb
     if (obj == NULL)
         return NULL;
 
-    if (candle_wait_and_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
+    if (candle_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
         return (PyObject*)obj;
 
     Py_DECREF(obj);
@@ -870,6 +870,16 @@ static PyMethodDef CandleChannel_methods[] = {
         .ml_flags = METH_VARARGS | METH_KEYWORDS
     },
     {
+        .ml_name = "send_nowait",
+        .ml_meth = (PyCFunction)CandleChannel_send_nowait,
+        .ml_flags = METH_VARARGS | METH_KEYWORDS
+    },
+    {
+        .ml_name = "receive_nowait",
+        .ml_meth = (PyCFunction)CandleChannel_receive_nowait,
+        .ml_flags = METH_NOARGS
+    },
+    {
         .ml_name = "send",
         .ml_meth = (PyCFunction)CandleChannel_send,
         .ml_flags = METH_VARARGS | METH_KEYWORDS
@@ -877,16 +887,6 @@ static PyMethodDef CandleChannel_methods[] = {
     {
         .ml_name = "receive",
         .ml_meth = (PyCFunction)CandleChannel_receive,
-        .ml_flags = METH_NOARGS
-    },
-    {
-        .ml_name = "wait_and_send",
-        .ml_meth = (PyCFunction)CandleChannel_wait_and_send,
-        .ml_flags = METH_VARARGS | METH_KEYWORDS
-    },
-    {
-        .ml_name = "wait_and_receive",
-        .ml_meth = (PyCFunction)CandleChannel_wait_and_receive,
         .ml_flags = METH_VARARGS | METH_KEYWORDS
     },
     {NULL}

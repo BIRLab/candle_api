@@ -84,7 +84,7 @@ int main(int argc, char *argv[]) {
     // receive message
     struct candle_can_frame frame;
     while (!interrupt) {
-        if (!candle_wait_and_receive_frame(dev, 0, &frame, 1000))
+        if (!candle_receive_frame(dev, 0, &frame, 1000))
             continue;
 
         if (!(frame.type & CANDLE_FRAME_TYPE_RX))

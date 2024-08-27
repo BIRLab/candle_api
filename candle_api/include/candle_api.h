@@ -130,10 +130,10 @@ bool candle_set_data_bit_timing(struct candle_device *device, uint8_t channel, s
 bool candle_get_termination(struct candle_device *device, uint8_t channel, bool *enable);
 bool candle_set_termination(struct candle_device *device, uint8_t channel, bool enable);
 bool candle_get_state(struct candle_device *device, uint8_t channel, struct candle_state *state);
-bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
-bool candle_wait_and_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
-bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
-bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
+bool candle_send_frame_nowait(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
+bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
+bool candle_receive_frame_nowait(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
+bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
 
 #ifdef __cplusplus
 }

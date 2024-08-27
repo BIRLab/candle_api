@@ -50,13 +50,13 @@ int main(int argc, char *argv[]) {
 
     // send message
     struct candle_can_frame frame = {.type = 0, .can_id = 123, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
-    success = candle_send_frame(dev, 0, &frame);
+    success = candle_send_frame_nowait(dev, 0, &frame);
     if (!success)
         goto handle_error;
     printf("send frame (id: %d)\n", frame.can_id);
 
     // receive message
-    while (candle_wait_and_receive_frame(dev, 0, &frame, 1000)) {
+    while (candle_receive_frame(dev, 0, &frame, 1000)) {
         printf("received frame (id: %d)\n", frame.can_id);
     }
 

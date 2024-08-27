@@ -23,7 +23,7 @@ static int receive_thread_func(void *arg) {
     struct candle_can_frame frame;
     time_t st = time(NULL);
     while (!interrupt) {
-        if (!candle_wait_and_receive_frame(e->dev, 0, &frame, 1000))
+        if (!candle_receive_frame(e->dev, 0, &frame, 1000))
             continue;
 
         if (frame.type & CANDLE_FRAME_TYPE_ERR)
@@ -37,7 +37,7 @@ static int receive_thread_func(void *arg) {
     }
     e->dt = difftime(time(NULL), st);
 
-    while (candle_wait_and_receive_frame(e->dev, 0, &frame, 1000));
+    while (candle_receive_frame(e->dev, 0, &frame, 1000));
 
     return 0;
 }
@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
         // send message
         struct candle_can_frame frame = {.type = 0, .can_id = 0, .can_dlc = 8, .data = {1, 2, 3, 4, 5, 6, 7, 8}};
         for (int j = 0; j < 200000; ++j) {
-            while ((dev->is_connected) && !candle_wait_and_send_frame(dev, 0, &frame, 1000));
+            while ((dev->is_connected) && !candle_send_frame(dev, 0, &frame, 1000));
         }
 
         // interrupt

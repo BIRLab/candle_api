@@ -897,7 +897,7 @@ bool candle_get_state(struct candle_device *device, uint8_t channel, struct cand
     return true;
 }
 
-bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
+bool candle_send_frame_nowait(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
     struct candle_device_handle *handle = device->handle;
 
     if (channel >= device->channel_count)
@@ -941,7 +941,7 @@ bool candle_send_frame(struct candle_device *device, uint8_t channel, struct can
     return send_frame(handle, channel, frame, echo_id);
 }
 
-bool candle_wait_and_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
+bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
     struct candle_device_handle *handle = device->handle;
 
     struct timespec ts;
@@ -996,7 +996,7 @@ bool candle_wait_and_send_frame(struct candle_device *device, uint8_t channel, s
     return send_frame(handle, channel, frame, echo_id);
 }
 
-bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
+bool candle_receive_frame_nowait(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame) {
     struct candle_device_handle *handle = device->handle;
 
     if (channel >= device->channel_count)
@@ -1015,7 +1015,7 @@ bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct 
     return true;
 }
 
-bool candle_wait_and_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
+bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds) {
     struct candle_device_handle *handle = device->handle;
 
     if (channel >= device->channel_count)
