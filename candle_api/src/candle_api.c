@@ -962,22 +962,26 @@ bool candle_wait_and_send_frame(struct candle_device *device, uint8_t channel, s
     // get echo id
     uint32_t echo_id_pool;
     uint32_t echo_id = 0;
+    mtx_lock(&handle->channels[channel].echo_id_cond_mtx);
     while (true) {
         // trying to preempt the echo id
         echo_id_pool = atomic_fetch_or(&handle->channels[channel].echo_id_pool, 1 << echo_id);
 
         // preempt the echo id
         if (!(echo_id_pool & (1 << echo_id))) {
+            mtx_unlock(&handle->channels[channel].echo_id_cond_mtx);
             break;
         }
 
         // no echo id available
-        if (echo_id_pool == (uint32_t)(-1)) {
-            mtx_lock(&handle->channels[channel].echo_id_cond_mtx);
-            bool r = cnd_timedwait(&handle->channels[channel].echo_id_cnd, &handle->channels[channel].echo_id_cond_mtx, &ts) == thrd_success;
-            mtx_unlock(&handle->channels[channel].echo_id_cond_mtx);
-            if (r) echo_id_pool = atomic_load(&handle->channels[channel].echo_id_pool);
-            else return false;
+        while (echo_id_pool == (uint32_t)(-1)) {
+            if (cnd_timedwait(&handle->channels[channel].echo_id_cnd, &handle->channels[channel].echo_id_cond_mtx, &ts) == thrd_success) {
+                echo_id_pool = atomic_load(&handle->channels[channel].echo_id_pool);
+            }
+            else {
+                mtx_unlock(&handle->channels[channel].echo_id_cond_mtx);
+                return false;
+            }
         }
 
         // find available echo id
