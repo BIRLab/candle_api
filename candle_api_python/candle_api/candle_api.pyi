@@ -179,10 +179,10 @@ class CandleChannel:
     def receive_nowait(self) -> Optional[CandleCanFrame]:
         ...
 
-    def send(self, frame: CandleCanFrame, timeout: float) -> bool:
+    def send(self, frame: CandleCanFrame, timeout: float) -> None:
         ...
 
-    def receive(self, timeout: float) -> Optional[CandleCanFrame]:
+    def receive(self, timeout: float) -> CandleCanFrame:
         ...
 
 

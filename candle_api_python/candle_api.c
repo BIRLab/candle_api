@@ -817,10 +817,10 @@ static PyObject *CandleChannel_send(CandleChannel_object *self, PyObject *args, 
     if (timeout < 0)
         timeout = 0;
 
-    if (candle_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
-        Py_RETURN_TRUE;
+    if (!candle_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
+        PyErr_SetString(PyExc_TimeoutError, "Send timeout.");
 
-    Py_RETURN_FALSE;
+    Py_RETURN_NONE;
 }
 
 static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *args, PyObject *kwargs)
@@ -841,11 +841,13 @@ static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *arg
     if (obj == NULL)
         return NULL;
 
-    if (candle_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
-        return (PyObject*)obj;
+    if (!candle_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout))) {
+        Py_DECREF(obj);
+        PyErr_SetString(PyExc_TimeoutError, "Receive timeout.");
+        return NULL;
+    }
 
-    Py_DECREF(obj);
-    Py_RETURN_NONE;
+    return (PyObject*)obj;
 }
 
 static PyMethodDef CandleChannel_methods[] = {
