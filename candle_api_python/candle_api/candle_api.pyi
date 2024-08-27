@@ -173,16 +173,16 @@ class CandleChannel:
     def set_data_bit_timing(self, prop_seg: int, phase_seg1: int, phase_seg2: int, sjw: int, brp: int) -> bool:
         ...
 
-    def send(self, frame: CandleCanFrame) -> bool:
+    def send_nowait(self, frame: CandleCanFrame) -> bool:
         ...
 
-    def receive(self) -> Optional[CandleCanFrame]:
+    def receive_nowait(self) -> Optional[CandleCanFrame]:
         ...
 
-    def wait_and_send(self, frame: CandleCanFrame, timeout: float) -> bool:
+    def send(self, frame: CandleCanFrame, timeout: float) -> bool:
         ...
 
-    def wait_and_receive(self, timeout: float) -> Optional[CandleCanFrame]:
+    def receive(self, timeout: float) -> Optional[CandleCanFrame]:
         ...
 
 
