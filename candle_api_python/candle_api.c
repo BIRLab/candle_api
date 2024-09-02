@@ -798,6 +798,8 @@ static PyObject *CandleChannel_receive_nowait(CandleChannel_object *self, PyObje
         Py_RETURN_NONE;
     }
 
+    obj->size = dlc2len[obj->frame.can_dlc];
+
     return (PyObject*)obj;
 }
 
@@ -817,8 +819,15 @@ static PyObject *CandleChannel_send(CandleChannel_object *self, PyObject *args, 
     if (timeout < 0)
         timeout = 0;
 
-    if (!candle_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout)))
+    bool ret;
+
+    Py_BEGIN_ALLOW_THREADS
+    ret = candle_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout));
+    Py_END_ALLOW_THREADS
+
+    if (!ret) {
         PyErr_SetString(PyExc_TimeoutError, "Send timeout.");
+    }
 
     Py_RETURN_NONE;
 }
@@ -841,11 +850,19 @@ static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *arg
     if (obj == NULL)
         return NULL;
 
-    if (!candle_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout))) {
+    bool ret;
+
+    Py_BEGIN_ALLOW_THREADS
+    ret = candle_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout));
+    Py_END_ALLOW_THREADS
+
+    if (!ret) {
         Py_DECREF(obj);
         PyErr_SetString(PyExc_TimeoutError, "Receive timeout.");
         return NULL;
     }
+
+    obj->size = dlc2len[obj->frame.can_dlc];
 
     return (PyObject*)obj;
 }

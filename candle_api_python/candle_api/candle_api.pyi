@@ -213,9 +213,13 @@ class CandleDevice:
     @property
     def manufacturer(self) -> str:
         ...
+
     @property
     def product(self) -> str:
+        ...
 
+    @property
+    def serial_number(self) -> str:
         ...
 
     @property
