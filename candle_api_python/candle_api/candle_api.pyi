@@ -49,10 +49,17 @@ class CandleCanFrame:
         self.frame_type = frame_type
         self.can_id = can_id
         self.can_dlc = can_dlc
-        self.data = data
 
     @property
     def timestamp(self) -> float:
+        ...
+
+    @property
+    def data(self) -> bytes:
+        ...
+
+    @data.setter
+    def data(self, value: Buffer) -> None:
         ...
 
     def __buffer__(self, flags: int) -> memoryview:

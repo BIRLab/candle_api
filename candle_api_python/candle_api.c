@@ -370,6 +370,27 @@ static int CandleCanFrame_set_can_dlc_property(CandleCanFrame_object *self, PyOb
     return 0;
 }
 
+static PyObject *CandleCanFrame_get_data_property(CandleCanFrame_object *self, void *closure) {
+    return PyBytes_FromStringAndSize((const char *)self->frame.data, dlc2len[self->frame.can_dlc]);
+}
+
+static int CandleCanFrame_set_data_property(CandleCanFrame_object *self, PyObject* value, void *closure) {
+    Py_buffer view;
+
+    if (PyObject_GetBuffer(value, &view, PyBUF_SIMPLE) != 0) {
+        PyErr_SetString(PyExc_BufferError, "Buffer Error!");
+        view.obj = NULL;
+        return -1;
+    }
+
+    size_t copy_len = view.len < sizeof(self->frame.data) ? view.len : sizeof(self->frame.data);
+    memcpy(self->frame.data, view.buf, copy_len);
+    memset(self->frame.data + copy_len, 0, sizeof(self->frame.data) - copy_len);
+
+    PyBuffer_Release(&view);
+    return 0;
+}
+
 static PyObject *CandleCanFrame_get_timestamp_property(CandleCanFrame_object *self, void *closure) {
     return PyFloat_FromDouble((double)self->frame.timestamp_us / 1e6);
 }
@@ -393,6 +414,11 @@ static PyGetSetDef CandleCanFrame_getset[] = {
     {
         .name = "timestamp",
         .get = (getter)CandleCanFrame_get_timestamp_property
+    },
+    {
+        .name = "data",
+        .get = (getter)CandleCanFrame_get_data_property,
+        .set = (setter)CandleCanFrame_set_data_property
     },
     {NULL}
 };
