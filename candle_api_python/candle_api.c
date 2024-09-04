@@ -117,7 +117,7 @@ static PyObject *CandleFrameType_get_ ## __name ## _property(CandleFrameType_obj
     return PyBool_FromLong(self->type & __value); \
 } \
 static int CandleFrameType_set_ ## __name ## _property(CandleFrameType_object *self, PyObject* value, void *closure) { \
-    if (Py_IsTrue(value)) \
+    if (PyObject_IsTrue(value) > 0) \
         self->type |= __value; \
     else \
         self->type &= ~__value; \
