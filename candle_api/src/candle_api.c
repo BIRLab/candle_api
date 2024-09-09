@@ -194,7 +194,7 @@ static void convert_frame(struct gs_host_frame *hf, struct candle_can_frame *fra
     }
 }
 
-bool send_frame(struct candle_device_handle* handle, uint8_t channel, struct candle_can_frame *frame, uint32_t echo_id) {
+static bool send_frame(struct candle_device_handle* handle, uint8_t channel, struct candle_can_frame *frame, uint32_t echo_id) {
     // calculate tx size
     struct gs_host_frame *hf;
     size_t hf_size_tx;
@@ -266,7 +266,7 @@ bool send_frame(struct candle_device_handle* handle, uint8_t channel, struct can
     return true;
 }
 
-void milliseconds_to_timespec(uint32_t milliseconds, struct timespec *ts) {
+static void milliseconds_to_timespec(uint32_t milliseconds, struct timespec *ts) {
     timespec_get(ts, TIME_UTC);
     ts->tv_sec += milliseconds / 1000;
     ts->tv_nsec += (long)(milliseconds % 1000) * 1000000;
