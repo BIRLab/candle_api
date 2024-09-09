@@ -1,11 +1,11 @@
 #include "candle_api.h"
+#include "compiler.h"
 #include "libusb.h"
 #include "list.h"
 #include "fifo.h"
 #include "gs_usb_def.h"
 #include <stdlib.h>
 #include <string.h>
-#include <threads.h>
 #include <stdatomic.h>
 
 static const uint8_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};

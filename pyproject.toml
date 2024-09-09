@@ -13,3 +13,13 @@ build-backend = "setuptools.build_meta"
 where = ["candle_api_python"]
 include = ["candle_api"]
 namespaces = false
+
+[tool.cibuildwheel]
+build-frontend = "build"
+skip = [
+    "*-musllinux*",
+    "pp*",
+]
+
+[tool.cibuildwheel.linux]
+before-build = "yum -y install libudev-devel"

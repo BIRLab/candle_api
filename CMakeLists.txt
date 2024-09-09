@@ -4,6 +4,7 @@ project(candle_api)
 option(CANDLE_API_SHARED "Build Shared Library" OFF)
 option(CANDLE_API_BUILD_EXAMPLES "Build Example Applications" OFF)
 option(CANDLE_API_BUILD_PYTHON "Build Python Extension" OFF)
+option(CANDLE_API_TINYCTHREADS "Build with TinyCThread" OFF)
 
 add_subdirectory(candle_api)
 

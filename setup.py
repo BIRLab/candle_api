@@ -1,9 +1,18 @@
 import os
+import re
 import subprocess
 import sys
+import platform
 from pathlib import Path
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
+
+
+def get_version():
+    toml_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'pyproject.toml')
+    with open(toml_file, 'r') as f:
+        toml_content = f.read()
+    return re.search(r"^version\s=\s\"(.*?)\"$", toml_content, re.MULTILINE)[1]
 
 
 class CMakeExtension(Extension):
@@ -21,8 +30,16 @@ class CMakeBuild(build_ext):
             "-DCANDLE_API_BUILD_PYTHON=ON",
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={ext_dir}{os.sep}candle_api{os.sep}",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
-            f"-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_BUILD_TYPE=Release"
         ]
+
+        if platform.system() == 'Linux':
+            libc, libc_ver = platform.libc_ver()
+            if libc == 'glibc':
+                libc_ver = tuple(map(int, libc_ver.split('.')))
+                if libc_ver < (2, 28):
+                    cmake_args.append("-DCANDLE_API_TINYCTHREADS=ON")
+
         build_args = []
 
         if self.compiler.compiler_type == "msvc":
@@ -42,6 +59,8 @@ class CMakeBuild(build_ext):
 
 
 setup(
+    name="candle_api",
+    version=get_version(),
     ext_modules=[CMakeExtension("candle_api")],
     cmdclass={"build_ext": CMakeBuild}
 )

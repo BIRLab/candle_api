@@ -58,7 +58,7 @@ static int CandleMode_init(CandleMode_object *self, PyObject *args, PyObject *kw
 }
 
 static PyTypeObject CandleModeType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleMode",
     .tp_basicsize = sizeof(CandleMode_object),
     .tp_itemsize = 0,
@@ -151,7 +151,7 @@ static PyGetSetDef CandleFrameType_getset[] = {
 };
 
 static PyTypeObject CandleFrameTypeType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleFrameType",
     .tp_basicsize = sizeof(CandleFrameType_object),
     .tp_itemsize = 0,
@@ -188,7 +188,7 @@ static PyObject* CandleCanState_richcompare(PyObject* self, PyObject* other, int
 }
 
 static PyTypeObject CandleCanStateType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleCanState",
     .tp_basicsize = sizeof(CandleCanState_object),
     .tp_itemsize = 0,
@@ -238,7 +238,7 @@ static PyGetSetDef CandleState_getset[] = {
 };
 
 static PyTypeObject CandleStateType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleState",
     .tp_basicsize = sizeof(CandleCanState_object),
     .tp_itemsize = 0,
@@ -424,7 +424,7 @@ static PyGetSetDef CandleCanFrame_getset[] = {
 };
 
 static PyTypeObject CandleCanFrameType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleCanFrame",
     .tp_basicsize = sizeof(CandleCanFrame_object),
     .tp_itemsize = 0,
@@ -537,7 +537,7 @@ static PyGetSetDef CandleFeature_getset[] = {
 };
 
 static PyTypeObject CandleFeatureType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleFeature",
     .tp_basicsize = sizeof(CandleFeature_object),
     .tp_itemsize = 0,
@@ -605,7 +605,7 @@ static PyMemberDef CandleBitTimingConst_members[] = {
 };
 
 static PyTypeObject CandleBitTimingConstType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleBitTimingConst",
     .tp_basicsize = sizeof(CandleBitTimingConst_object),
     .tp_itemsize = 0,
@@ -938,7 +938,7 @@ static PyMethodDef CandleChannel_methods[] = {
 };
 
 static PyTypeObject CandleChannelType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleChannel",
     .tp_basicsize = sizeof(CandleChannel_object),
     .tp_itemsize = 0,
@@ -1127,7 +1127,7 @@ static PyMethodDef CandleDevice_methods[] = {
 };
 
 static PyTypeObject CandleDeviceType = {
-    .ob_base = PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(NULL, 0)
     .tp_name = "candle_api.CandleDevice",
     .tp_basicsize = sizeof(CandleDevice_object),
     .tp_itemsize = 0,

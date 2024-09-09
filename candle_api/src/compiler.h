@@ -31,4 +31,10 @@
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
+#ifdef USING_TINYCTHREADS
+#include "tinycthread.h"
+#else
+#include <threads.h>
+#endif
+
 #endif // CANDLE_API_COMPILER_H

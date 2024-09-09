@@ -6,33 +6,16 @@ jobs:
   build_wheels:
     strategy:
       matrix:
-        plat:
-          - [ ubuntu-latest, "3.x" ]
-          - [ ubuntu-18.04, "3.6" ]
-          - [ ubuntu-20.04, "3.8" ]
-          - [ ubuntu-22.04, "3.10" ]
-          - [ ubuntu-24.04, "3.12" ]
-          - [ windows-latest, "3.x" ]
-          - [ windows-latest, "3.6" ]
-          - [ windows-latest, "3.8" ]
-          - [ windows-latest, "3.10" ]
-          - [ windows-latest, "3.12" ]
+        os: [ubuntu-latest, windows-latest]
     name: Build binary distribution
-    runs-on: ${{ matrix.plat[0] }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - if: ${{ startsWith(matrix.plat[0], 'ubuntu') }}
-        run: sudo apt update && sudo apt install -y libudev-dev
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.plat[1] }}
-      - run: |
-          python -m pip install build
-          python -m build --wheel
+      - uses: pypa/cibuildwheel@v2.20.0
       - uses: actions/upload-artifact@v4
         with:
-          name: output-wheel-${{ matrix.plat[0] }}-${{ matrix.plat[1] }}
-          path: dist/*.whl
+          name: output-wheel-${{ matrix.os }}
+          path: wheelhouse/*.whl
 
   build_sdist:
     name: Build source distribution
