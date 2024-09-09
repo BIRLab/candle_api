@@ -847,12 +847,15 @@ static PyObject *CandleChannel_send(CandleChannel_object *self, PyObject *args, 
 
     bool ret;
 
+    Py_INCREF(obj);
     Py_BEGIN_ALLOW_THREADS
     ret = candle_send_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout));
     Py_END_ALLOW_THREADS
+    Py_DECREF(obj);
 
     if (!ret) {
         PyErr_SetString(PyExc_TimeoutError, "Send timeout.");
+        return NULL;
     }
 
     Py_RETURN_NONE;
@@ -878,9 +881,11 @@ static PyObject *CandleChannel_receive(CandleChannel_object *self, PyObject *arg
 
     bool ret;
 
+    Py_INCREF(obj);
     Py_BEGIN_ALLOW_THREADS
     ret = candle_receive_frame(self->dev, self->ch, &obj->frame, (uint32_t)(1000 * timeout));
     Py_END_ALLOW_THREADS
+    Py_DECREF(obj);
 
     if (!ret) {
         Py_DECREF(obj);
