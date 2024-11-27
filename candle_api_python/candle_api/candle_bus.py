@@ -134,7 +134,10 @@ class CandleBus(can.bus.BusABC):
             return msg, False
         return None, False
 
-    def send(self, msg: can.Message, timeout: Optional[float] = 1.0) -> None:
+    def send(self, msg: can.Message, timeout: Optional[float] = None) -> None:
+        if timeout is None:
+            timeout = 1.0
+
         frame = CandleCanFrame(
             CandleFrameType(
                 rx=msg.is_rx,
