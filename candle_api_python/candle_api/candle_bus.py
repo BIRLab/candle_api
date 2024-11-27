@@ -33,6 +33,9 @@ class CandleBus(can.bus.BusABC):
         else:
             raise can.exceptions.CanInitializationError('Device not found!')
 
+        # Open the device.
+        self._device.open()
+
         # Get the channel.
         self._channel_number = channel
         self._channel = self._device[channel]
@@ -108,7 +111,10 @@ class CandleBus(can.bus.BusABC):
         if timeout is None:
             frame = self._channel.receive_nowait()
         else:
-            frame = self._channel.receive(timeout)
+            try:
+                frame = self._channel.receive(timeout)
+            except TimeoutError:
+                frame = None
 
         if frame is not None:
             msg = can.Message(
