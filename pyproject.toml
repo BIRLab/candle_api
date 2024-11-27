@@ -2,6 +2,12 @@
 name = "candle_api"
 version = "0.0.0"
 
+[project.optional-dependencies]
+can = ["python-can"]
+
+[project.entry-points."can.interface"]
+candle_bus = "candle_api.candle_bus:CandleBus"
+
 [build-system]
 requires = [
     "setuptools",
