@@ -34,13 +34,11 @@ for (d of addon.listDevice()) {
         console.log(e);
     });
 
-    setInterval((e) => {
-        d.receive()
-            .then((frame) => {
-                console.log(frame);
-            })
-            .catch((e) => {
-                console.log(e);
-            });
-    }, 100);
+    d.receive()
+        .then((frame) => {
+            console.log(frame);
+        })
+        .catch((e) => {
+            console.log(e);
+        });
 }
