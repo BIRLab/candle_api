@@ -10,6 +10,8 @@ class CandleDevice extends EventEmitter {
         this.product = device.product;
         this.serial_number = device.serial_number;
         this.handle = device.handle;
+
+        this.on('error', () => {});
     }
 
     isOpened() {
