@@ -3,233 +3,272 @@
 
 static const uint8_t dlc2len[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64};
 
-class CandleDevice : public Napi::ObjectWrap<CandleDevice> {
+class CandleJS : public Napi::Addon<CandleJS> {
 public:
-    static Napi::Object Init(Napi::Env env, Napi::Object exports) {
-        Napi::Function func = DefineClass(env, "CandleDevice", {
-            InstanceAccessor<&CandleDevice::VIDGetter>("idVender"),
-            InstanceAccessor<&CandleDevice::PIDGetter>("idProduct"),
-            InstanceAccessor<&CandleDevice::ManufactureGetter>("manufacture"),
-            InstanceAccessor<&CandleDevice::ProductGetter>("product"),
-            InstanceAccessor<&CandleDevice::SerialNumberGetter>("serialNumber"),
-            InstanceMethod<&CandleDevice::Open>("open"),
-            InstanceMethod<&CandleDevice::Close>("close"),
-            InstanceMethod<&CandleDevice::Send>("send"),
-            InstanceMethod<&CandleDevice::Receive>("receive"),
-        });
-        Napi::FunctionReference* constructor = new Napi::FunctionReference();
-        *constructor = Napi::Persistent(func);
-        exports.Set("CandleDevice", func);
-        env.SetInstanceData<Napi::FunctionReference>(constructor);
-        return exports;
+    CandleJS(Napi::Env env, Napi::Object exports) {
+        candle_initialize();
+        DefineAddon(exports, {InstanceMethod("listDevice", &CandleJS::ListDevice, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("isOpened", &CandleJS::IsOpened, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("openDevice", &CandleJS::OpenDevice, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("closeDevice", &CandleJS::CloseDevice, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("resetChannel", &CandleJS::ResetChannel, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("startChannel", &CandleJS::StartChannel, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("setBitTiming", &CandleJS::SetBitTiming, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("setDataBitTiming", &CandleJS::SetDataBitTiming, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("setTermination", &CandleJS::SetTermination, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("send", &CandleJS::Send, napi_enumerable)});
+        DefineAddon(exports, {InstanceMethod("receive", &CandleJS::Receive, napi_enumerable)});
     }
 
-    CandleDevice(const Napi::CallbackInfo& info) : Napi::ObjectWrap<CandleDevice>(info) {
-        if (info.Length() != 1) {
-            Napi::TypeError::New(info.Env(), "Wrong number of arguments").ThrowAsJavaScriptException();
-            return;
-        }
-
-        if (!info[0].IsExternal()) {
-            Napi::TypeError::New(info.Env(), "Need an external argument").ThrowAsJavaScriptException();
-            return;
-        }
-
-        _dev = info[0].As<Napi::External<struct candle_device>>().Data();
-        candle_ref_device(_dev);
-    }
-
-    void Finalize(Napi::Env env) {
-        candle_unref_device(_dev);
-    }
-
-    static Napi::Value Create(Napi::Env env, struct candle_device *dev)  {
-        Napi::FunctionReference* constructor = env.GetInstanceData<Napi::FunctionReference>();
-        return constructor->New({ Napi::External<struct candle_device>::New(env, dev) });
+    ~CandleJS() {
+        candle_finalize();
     }
 
 private:
-    struct candle_device *_dev;
+    Napi::Value ListDevice(const Napi::CallbackInfo& info) {
+        candle_device **device_list;
+        size_t device_list_size;
+        if (!candle_get_device_list(&device_list, &device_list_size)) {
+            throw Napi::Error::New(info.Env(), "Cannot get candle device list");
+        }
 
-    class SendWorker : public Napi::AsyncWorker {
+        Napi::Array list = Napi::Array::New(info.Env(), device_list_size);
+        for (int i = 0; i < device_list_size; ++i) {
+            candle_device *handle = device_list[i];
+
+            Napi::Object obj = Napi::Object::New(info.Env());
+            obj.Set("vendor_id", handle->vendor_id);
+            obj.Set("product_id", handle->product_id);
+            obj.Set("manufacturer", handle->manufacturer);
+            obj.Set("product", handle->product);
+            obj.Set("serial_number", handle->serial_number);
+
+            candle_ref_device(handle);
+            obj.Set("handle", Napi::External<candle_device>::New(info.Env(), handle, [](Napi::BasicEnv e, candle_device* h){
+                candle_unref_device(h);
+            }));
+            list[i] = obj;
+        }
+
+        candle_free_device_list(device_list);
+        return list;
+    }
+
+    static candle_device* GetHandle(const Napi::CallbackInfo& info) {
+        if (!info[0].IsObject())
+            throw Napi::Error::New(info.Env(), "Wrong arguments");
+
+        if (!info[0].As<Napi::Object>().Has("handle"))
+            throw Napi::Error::New(info.Env(), "Wrong arguments");
+
+        if (!info[0].As<Napi::Object>().Get("handle").IsExternal())
+            throw Napi::Error::New(info.Env(), "Wrong arguments");
+
+        return info[0].As<Napi::Object>().Get("handle").As<Napi::External<candle_device>>().Data();
+    }
+
+    Napi::Value IsOpened(const Napi::CallbackInfo& info) {
+        if (info.Length() != 1) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+
+        return Napi::Boolean::New(info.Env(), handle->is_open && handle->is_connected);
+    }
+
+    Napi::Value OpenDevice(const Napi::CallbackInfo& info) {
+        if (info.Length() != 1) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+
+        if (candle_open_device(handle)) {
+            candle_unref_device(handle);
+            return Napi::Boolean::New(info.Env(), true);
+        }
+
+        return Napi::Boolean::New(info.Env(), false);
+    }
+
+    Napi::Value CloseDevice(const Napi::CallbackInfo& info) {
+        if (info.Length() != 1) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+
+        if (handle->is_open) {
+            candle_ref_device(handle);
+            candle_close_device(handle);
+        }
+
+        return info.Env().Null();
+    }
+
+    Napi::Value ResetChannel(const Napi::CallbackInfo& info) {
+        if (info.Length() != 2) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+
+        return Napi::Boolean::New(info.Env(), candle_reset_channel(handle, channel));
+    }
+
+    Napi::Value StartChannel(const Napi::CallbackInfo& info) {
+        if (info.Length() != 3) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+        uint32_t mode = info[2].As<Napi::Number>().Uint32Value();
+
+        if (handle->channels[channel].feature & CANDLE_FEATURE_HW_TIMESTAMP)
+            mode |= CANDLE_MODE_HW_TIMESTAMP;
+
+        return Napi::Boolean::New(info.Env(), candle_start_channel(handle, channel, static_cast<candle_mode>(mode)));
+    }
+
+    static void GetBitTiming(const Napi::Object& obj, candle_bit_timing& bt) {
+        bt.prop_seg = obj.Get("prop_seg").As<Napi::Number>().Uint32Value();
+        bt.phase_seg1 = obj.Get("phase_seg1").As<Napi::Number>().Uint32Value();
+        bt.phase_seg2 = obj.Get("phase_seg2").As<Napi::Number>().Uint32Value();
+        bt.sjw = obj.Get("sjw").As<Napi::Number>().Uint32Value();
+        bt.brp = obj.Get("brp").As<Napi::Number>().Uint32Value();
+    }
+
+    Napi::Value SetBitTiming(const Napi::CallbackInfo& info) {
+        if (info.Length() != 3) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+
+        candle_bit_timing bt;
+        GetBitTiming(info[2].As<Napi::Object>(), bt);
+
+        return Napi::Boolean::New(info.Env(), candle_set_bit_timing(handle, channel, &bt));
+    }
+
+    Napi::Value SetDataBitTiming(const Napi::CallbackInfo& info) {
+        if (info.Length() != 3) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+
+        candle_bit_timing bt;
+        GetBitTiming(info[2].As<Napi::Object>(), bt);
+
+        return Napi::Boolean::New(info.Env(), candle_set_data_bit_timing(handle, channel, &bt));
+    }
+
+    Napi::Value SetTermination(const Napi::CallbackInfo& info) {
+        if (info.Length() != 3) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+        bool enable = info[2].As<Napi::Boolean>().Value();
+
+        return Napi::Boolean::New(info.Env(), candle_set_termination(handle, channel, enable));
+    }
+
+    static Napi::Object FrameToObject(const Napi::Env& env, const candle_can_frame& frame) {
+        Napi::Number type = Napi::Number::New(env, frame.type);
+        Napi::Number can_id = Napi::Number::New(env, frame.can_id);
+        Napi::Number can_dlc = Napi::Number::New(env, frame.can_dlc);
+        Napi::Array data = Napi::Array::New(env, dlc2len[frame.can_dlc]);
+        Napi::Number timestamp_us = Napi::Number::New(env, frame.timestamp_us);
+
+        for (int i = 0; i < dlc2len[frame.can_dlc]; ++i) {
+            data[i] = Napi::Number::New(env, frame.data[i]);
+        }
+
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("type", type);
+        obj.Set("can_id", can_id);
+        obj.Set("can_dlc", can_dlc);
+        obj.Set("data", data);
+        obj.Set("timestamp_us", timestamp_us);
+        return obj;
+    }
+
+    static void ObjectToFrame(const Napi::Env& env, const Napi::Object& obj, candle_can_frame& frame) {
+        frame.type = static_cast<candle_frame_type>(obj.Get("type").As<Napi::Number>().Uint32Value());
+        frame.can_id = obj.Get("can_id").As<Napi::Number>().Uint32Value();
+        frame.can_dlc = obj.Get("can_dlc").As<Napi::Number>().Uint32Value();
+        for (int i = 0; i < dlc2len[frame.can_dlc]; ++i) {
+            frame.data[i] = obj.Get("data").As<Napi::Array>().Get(i).As<Napi::Number>().Uint32Value();
+        }
+        frame.timestamp_us = 0;
+    }
+
+    template<bool (*send_receive_function)(candle_device *device, uint8_t channel, candle_can_frame *frame, uint32_t milliseconds)>
+    class SendReceiveWorker : public Napi::AsyncWorker {
     public:
-        SendWorker(Napi::Env env, Napi::Promise::Deferred deferred, struct candle_device *dev, const struct candle_can_frame& frame) : AsyncWorker(env), _deferred{deferred}, _dev{dev}, _frame{frame} {}
+        SendReceiveWorker(Napi::Env env, Napi::Promise::Deferred deferred, candle_device *dev, uint8_t channel, uint32_t timeout) : AsyncWorker(env), _deferred{deferred}, _dev{dev}, _channel{channel}, _timeout{timeout}, _frame{}, _result{false} {}
+        SendReceiveWorker(Napi::Env env, Napi::Promise::Deferred deferred, candle_device *dev, uint8_t channel, uint32_t timeout, const struct candle_can_frame& frame) : AsyncWorker(env), _deferred{deferred}, _dev{dev}, _channel{channel}, _timeout{timeout}, _frame{frame}, _result{false} {}
 
         void Execute() override {
-            _result = candle_send_frame(_dev, 0, &_frame, 1000);
+            _result = send_receive_function(_dev, _channel, &_frame, _timeout);
         }
 
         void OnOK() override {
             Napi::HandleScope scope(Env());
             if (_result)
-                _deferred.Resolve({Napi::Boolean::New(Env(), _result)});
+                _deferred.Resolve(FrameToObject(Env(), _frame));
             else
-                _deferred.Reject({Napi::String::New(Env(), "Error!!!!!!")});
+                _deferred.Reject({Napi::String::New(Env(), "Timeout")});
         }
+
     private:
         Napi::Promise::Deferred _deferred;
-        struct candle_device *_dev;
-        struct candle_can_frame _frame;
-        bool _result{};
+        candle_device *_dev;
+        uint8_t _channel;
+        uint32_t _timeout;
+        candle_can_frame _frame;
+        bool _result;
     };
-
-    class ReceiveWorker : public Napi::AsyncWorker {
-    public:
-        ReceiveWorker(Napi::Env env, Napi::Promise::Deferred deferred, struct candle_device *dev) : AsyncWorker(env), _deferred{deferred}, _dev{dev} {}
-
-        void Execute() override {
-            _result = candle_receive_frame(_dev, 0, &_frame, 1000);
-        }
-
-        void OnOK() override {
-            Napi::HandleScope scope(Env());
-            if (_result) {
-                Napi::Number can_id = Napi::Number::New(Env(), _frame.can_id);
-                Napi::Number can_dlc = Napi::Number::New(Env(), _frame.can_dlc);
-                Napi::Array data = Napi::Array::New(Env(), dlc2len[_frame.can_dlc]);
-                for (int i = 0; i < dlc2len[_frame.can_dlc]; ++i) {
-                    data[i] = Napi::Number::New(Env(), _frame.data[i]);
-                }
-                Napi::Object obj = Napi::Object::New(Env());
-                obj.Set("id", can_id);
-                obj.Set("dlc", can_dlc);
-                obj.Set("data", data);
-                _deferred.Resolve(obj);
-            } else {
-                _deferred.Reject(Napi::String::New(Env(), "Error!!!!!!"));
-            }
-        }
-    private:
-        Napi::Promise::Deferred _deferred;
-        struct candle_device *_dev;
-        struct candle_can_frame _frame{};
-        bool _result{};
-    };
-
-    Napi::Value VIDGetter(const Napi::CallbackInfo& info) {
-        return Napi::Number::New(info.Env(), _dev->vendor_id);
-    }
-
-    Napi::Value PIDGetter(const Napi::CallbackInfo& info) {
-        return Napi::Number::New(info.Env(), _dev->product_id);
-    }
-
-    Napi::Value ManufactureGetter(const Napi::CallbackInfo& info) {
-        return Napi::String::New(info.Env(), _dev->manufacturer);
-    }
-
-    Napi::Value ProductGetter(const Napi::CallbackInfo& info) {
-        return Napi::String::New(info.Env(), _dev->product);
-    }
-
-    Napi::Value SerialNumberGetter(const Napi::CallbackInfo& info) {
-        return Napi::String::New(info.Env(), _dev->serial_number);
-    }
-
-    Napi::Value Open(const Napi::CallbackInfo& info) {
-        if (info.Length() != 1) {
-            Napi::TypeError::New(info.Env(), "Wrong number of arguments").ThrowAsJavaScriptException();
-            return Napi::Boolean::New(info.Env(), false);
-        }
-
-        if (!info[0].IsObject()) {
-            Napi::TypeError::New(info.Env(), "Need an object argument").ThrowAsJavaScriptException();
-            return Napi::Boolean::New(info.Env(), false);
-        }
-
-        struct candle_bit_timing bt;
-        bt.prop_seg = info[0].As<Napi::Object>().Get("bit_timing").As<Napi::Object>().Get("prop_seg").As<Napi::Number>().operator uint32_t();
-        bt.phase_seg1 = info[0].As<Napi::Object>().Get("bit_timing").As<Napi::Object>().Get("phase_seg1").As<Napi::Number>().operator uint32_t();
-        bt.phase_seg2 = info[0].As<Napi::Object>().Get("bit_timing").As<Napi::Object>().Get("phase_seg2").As<Napi::Number>().operator uint32_t();
-        bt.sjw = info[0].As<Napi::Object>().Get("bit_timing").As<Napi::Object>().Get("sjw").As<Napi::Number>().operator uint32_t();
-        bt.brp = info[0].As<Napi::Object>().Get("bit_timing").As<Napi::Object>().Get("brp").As<Napi::Number>().operator uint32_t();
-
-        struct candle_bit_timing dbt;
-        dbt.prop_seg = info[0].As<Napi::Object>().Get("data_bit_timing").As<Napi::Object>().Get("prop_seg").As<Napi::Number>().operator uint32_t();
-        dbt.phase_seg1 = info[0].As<Napi::Object>().Get("data_bit_timing").As<Napi::Object>().Get("phase_seg1").As<Napi::Number>().operator uint32_t();
-        dbt.phase_seg2 = info[0].As<Napi::Object>().Get("data_bit_timing").As<Napi::Object>().Get("phase_seg2").As<Napi::Number>().operator uint32_t();
-        dbt.sjw = info[0].As<Napi::Object>().Get("data_bit_timing").As<Napi::Object>().Get("sjw").As<Napi::Number>().operator uint32_t();
-        dbt.brp = info[0].As<Napi::Object>().Get("data_bit_timing").As<Napi::Object>().Get("brp").As<Napi::Number>().operator uint32_t();
-
-        if (!candle_open_device(_dev))
-            return Napi::Boolean::New(info.Env(), false);
-
-        candle_unref_device(_dev);
-
-        if (!candle_reset_channel(_dev, 0))
-            return Napi::Boolean::New(info.Env(), false);
-
-        if (!candle_set_bit_timing(_dev, 0, &bt))
-            return Napi::Boolean::New(info.Env(), false);
-
-        if (!candle_set_data_bit_timing(_dev, 0, &dbt))
-            return Napi::Boolean::New(info.Env(), false);
-
-        candle_set_termination(_dev, 0, true);
-
-        if (!candle_start_channel(_dev, 0, static_cast<candle_mode>(CANDLE_MODE_HW_TIMESTAMP | CANDLE_MODE_FD)))
-            return Napi::Boolean::New(info.Env(), false);
-
-        return Napi::Boolean::New(info.Env(), true);
-    }
-
-    Napi::Value Close(const Napi::CallbackInfo& info) {
-        if (_dev->is_open) {
-            candle_ref_device(_dev);
-            candle_close_device(_dev);
-        }
-        return info.Env().Null();
-    }
 
     Napi::Value Send(const Napi::CallbackInfo& info) {
-        struct candle_can_frame frame;
-        frame.type = static_cast<candle_frame_type>(CANDLE_FRAME_TYPE_FD | CANDLE_FRAME_TYPE_BRS);
-        frame.can_id = info[0].As<Napi::Object>().Get("id").As<Napi::Number>().Uint32Value();
-        frame.can_dlc = info[0].As<Napi::Object>().Get("dlc").As<Napi::Number>().Uint32Value();
-        for (int i = 0; i < dlc2len[frame.can_dlc]; ++i) {
-            frame.data[i] = info[0].As<Napi::Object>().Get("data").As<Napi::Array>().Get(i).As<Napi::Number>().Uint32Value();
+        if (info.Length() != 4) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
         }
-        frame.timestamp_us = 0;
 
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+        uint32_t timeout = info[2].As<Napi::Number>().Uint32Value();
+
+        candle_can_frame frame{};
+        ObjectToFrame(info.Env(), info[3].As<Napi::Object>(), frame);
         Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(info.Env());
-        SendWorker* wk = new SendWorker(info.Env(), deferred, _dev, frame);
+        SendReceiveWorker<candle_send_frame>* wk = new SendReceiveWorker<candle_send_frame>(info.Env(), deferred, handle, channel, timeout, frame);
         wk->Queue();
         return deferred.Promise();
     }
 
     Napi::Value Receive(const Napi::CallbackInfo& info) {
+        if (info.Length() != 3) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+        uint32_t timeout = info[2].As<Napi::Number>().Uint32Value();
+
         Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(info.Env());
-        ReceiveWorker* wk = new ReceiveWorker(info.Env(), deferred, _dev);
+        SendReceiveWorker<candle_receive_frame>* wk = new SendReceiveWorker<candle_receive_frame>(info.Env(), deferred, handle, channel, timeout);
         wk->Queue();
         return deferred.Promise();
     }
 };
 
-Napi::Value ListDevice(const Napi::CallbackInfo& info) {
-    struct candle_device **device_list;
-    size_t device_list_size;
-    if (!candle_get_device_list(&device_list, &device_list_size)) {
-        Napi::TypeError::New(info.Env(), "Cannot get candle device list").ThrowAsJavaScriptException();
-        return info.Env().Null();
-    }
-
-    Napi::Array list = Napi::Array::New(info.Env(), device_list_size);
-
-    for (int i = 0; i < device_list_size; ++i) {
-        list[i] = CandleDevice::Create(info.Env(), device_list[i]);
-    }
-
-    candle_free_device_list(device_list);
-
-    return list;
-}
-
-Napi::Object Init(Napi::Env env, Napi::Object exports)
-{
-    candle_initialize();
-    exports.Set("listDevice", Napi::Function::New<ListDevice>(env));
-    CandleDevice::Init(env, exports);
-    return exports;
-}
-
-NODE_API_MODULE(candle-js, Init)
+NODE_API_ADDON(CandleJS)
