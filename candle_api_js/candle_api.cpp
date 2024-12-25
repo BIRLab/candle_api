@@ -7,17 +7,26 @@ class CandleJS : public Napi::Addon<CandleJS> {
 public:
     CandleJS(Napi::Env env, Napi::Object exports) {
         candle_initialize();
-        DefineAddon(exports, {InstanceMethod("listDevice", &CandleJS::ListDevice, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("isOpened", &CandleJS::IsOpened, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("openDevice", &CandleJS::OpenDevice, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("closeDevice", &CandleJS::CloseDevice, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("resetChannel", &CandleJS::ResetChannel, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("startChannel", &CandleJS::StartChannel, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("setBitTiming", &CandleJS::SetBitTiming, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("setDataBitTiming", &CandleJS::SetDataBitTiming, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("setTermination", &CandleJS::SetTermination, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("send", &CandleJS::Send, napi_enumerable)});
-        DefineAddon(exports, {InstanceMethod("receive", &CandleJS::Receive, napi_enumerable)});
+        DefineAddon(exports, {
+            InstanceMethod("listDevice", &CandleJS::ListDevice, napi_enumerable),
+            InstanceMethod("isOpened", &CandleJS::IsOpened, napi_enumerable),
+            InstanceMethod("openDevice", &CandleJS::OpenDevice, napi_enumerable),
+            InstanceMethod("closeDevice", &CandleJS::CloseDevice, napi_enumerable),
+            InstanceMethod("resetChannel", &CandleJS::ResetChannel, napi_enumerable),
+            InstanceMethod("startChannel", &CandleJS::StartChannel, napi_enumerable),
+            InstanceMethod("setBitTiming", &CandleJS::SetBitTiming, napi_enumerable),
+            InstanceMethod("setDataBitTiming", &CandleJS::SetDataBitTiming, napi_enumerable),
+            InstanceMethod("setTermination", &CandleJS::SetTermination, napi_enumerable),
+            InstanceMethod("send", &CandleJS::Send, napi_enumerable),
+            InstanceMethod("receive", &CandleJS::Receive, napi_enumerable),
+            InstanceValue("FRAME_TYPE_RX", Napi::Number::New(env, CANDLE_FRAME_TYPE_RX), napi_enumerable),
+            InstanceValue("FRAME_TYPE_EFF", Napi::Number::New(env, CANDLE_FRAME_TYPE_EFF), napi_enumerable),
+            InstanceValue("FRAME_TYPE_RTR", Napi::Number::New(env, CANDLE_FRAME_TYPE_RTR), napi_enumerable),
+            InstanceValue("FRAME_TYPE_ERR", Napi::Number::New(env, CANDLE_FRAME_TYPE_ERR), napi_enumerable),
+            InstanceValue("FRAME_TYPE_FD", Napi::Number::New(env, CANDLE_FRAME_TYPE_FD), napi_enumerable),
+            InstanceValue("FRAME_TYPE_BRS", Napi::Number::New(env, CANDLE_FRAME_TYPE_BRS), napi_enumerable),
+            InstanceValue("FRAME_TYPE_ESI", Napi::Number::New(env, CANDLE_FRAME_TYPE_ESI), napi_enumerable),
+        });
     }
 
     ~CandleJS() {
@@ -56,13 +65,13 @@ private:
 
     static candle_device* GetHandle(const Napi::CallbackInfo& info) {
         if (!info[0].IsObject())
-            throw Napi::Error::New(info.Env(), "Wrong arguments");
+            throw Napi::Error::New(info.Env(), "The first argument must be an object");
 
         if (!info[0].As<Napi::Object>().Has("handle"))
-            throw Napi::Error::New(info.Env(), "Wrong arguments");
+            throw Napi::Error::New(info.Env(), "The object does not have a native device handle");
 
         if (!info[0].As<Napi::Object>().Get("handle").IsExternal())
-            throw Napi::Error::New(info.Env(), "Wrong arguments");
+            throw Napi::Error::New(info.Env(), "The handle is not a external object");
 
         return info[0].As<Napi::Object>().Get("handle").As<Napi::External<candle_device>>().Data();
     }

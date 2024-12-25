@@ -1,8 +1,10 @@
 const candle = require('./binding')
 
+// scan device
 const dev = candle.listDevice()[0];
 console.log(dev);
 
+// open device
 dev.open({
     fd: true,
     termination: true,
@@ -22,6 +24,7 @@ dev.open({
     }
 });
 
+// send frame
 dev.send({
     type: candle.FRAME_TYPE_FD | candle.FRAME_TYPE_EFF,
     can_id: 123456,
@@ -33,7 +36,17 @@ dev.send({
     console.error("Error sending frame:", error);
 });
 
-async function receiveRepetitively() {
+// subscribe frame
+dev.on('frame', (frame) => {
+    console.log(`On frame: ${JSON.stringify(frame)}`);
+});
+
+dev.on('error', (error) => {
+    console.log(`On error: ${error}`);
+});
+
+// polling frame
+(async function() {
     while (dev.isOpened()) {
         try {
             const frame = await dev.receive();
@@ -42,8 +55,6 @@ async function receiveRepetitively() {
             console.error("Error receiving frame:", error);
         }
     }
-}
-
-receiveRepetitively();
+})();
 
 setTimeout(() => {dev.close()}, 5000);
