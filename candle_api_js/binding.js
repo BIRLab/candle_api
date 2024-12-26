@@ -71,7 +71,7 @@ const wrapper = {
     FRAME_TYPE_ESI: addon.FRAME_TYPE_ESI,
 
     listDevice: function listDevice() {
-        list = [];
+        const list = [];
         for (const device of addon.listDevice()) {
             list.push(new CandleDevice(device));
         }
