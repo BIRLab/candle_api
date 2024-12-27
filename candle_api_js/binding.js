@@ -1,6 +1,117 @@
 const addon = require('bindings')('candle-js');
 const { once, EventEmitter } = require('events');
 
+function parseErrorFrame(frame) {
+    const errorFlags = [];
+    if (frame.can_id & (1 << 0))
+        errorFlags.push('TX timeout');
+    if (frame.can_id & (1 << 1))
+        errorFlags.push('arbitration lost in bit ' + frame.data[0]);
+    if (frame.can_id & (1 << 2))
+        errorFlags.push('controller problems');
+    if (frame.data[1] & (1 << 0))
+        errorFlags.push('RX buffer overflow');
+    if (frame.data[1] & (1 << 1))
+        errorFlags.push('TX buffer overflow');
+    if (frame.data[1] & (1 << 2))
+        errorFlags.push('reached warning level for RX errors');
+    if (frame.data[1] & (1 << 3))
+        errorFlags.push('reached warning level for TX errors');
+    if (frame.data[1] & (1 << 4))
+        errorFlags.push('reached error passive status RX');
+    if (frame.data[1] & (1 << 5))
+        errorFlags.push('reached error passive status TX');
+    if (frame.data[1] & (1 << 6))
+        errorFlags.push('recovered to error active state');
+    if (frame.can_id & (1 << 3))
+        errorFlags.push('protocol violations');
+    if (frame.data[2] & (1 << 0))
+        errorFlags.push('single bit error');
+    if (frame.data[2] & (1 << 1))
+        errorFlags.push('frame format error');
+    if (frame.data[2] & (1 << 2))
+        errorFlags.push('bit stuffing error');
+    if (frame.data[2] & (1 << 3))
+        errorFlags.push('unable to send dominant bit');
+    if (frame.data[2] & (1 << 4))
+        errorFlags.push('unable to send recessive bit');
+    if (frame.data[2] & (1 << 5))
+        errorFlags.push('bus overload');
+    if (frame.data[2] & (1 << 6))
+        errorFlags.push('active error announcement');
+    if (frame.data[2] & (1 << 7))
+        errorFlags.push('error occurred on transmission');
+    if (frame.data[3] === 0x03)
+        errorFlags.push('start of frame');
+    if (frame.data[3] === 0x02)
+        errorFlags.push('ID bits 28 - 21 (SFF: 10 - 3)');
+    if (frame.data[3] === 0x06)
+        errorFlags.push('ID bits 20 - 18 (SFF: 2 - 0 )');
+    if (frame.data[3] === 0x04)
+        errorFlags.push('substitute RTR (SFF: RTR)');
+    if (frame.data[3] === 0x05)
+        errorFlags.push('identifier extension');
+    if (frame.data[3] === 0x07)
+        errorFlags.push('ID bits 17-13');
+    if (frame.data[3] === 0x0F)
+        errorFlags.push('ID bits 12-5');
+    if (frame.data[3] === 0x0E)
+        errorFlags.push('ID bits 4-0');
+    if (frame.data[3] === 0x0C)
+        errorFlags.push('RTR');
+    if (frame.data[3] === 0x0D)
+        errorFlags.push('reserved bit 1');
+    if (frame.data[3] === 0x09)
+        errorFlags.push('reserved bit 0');
+    if (frame.data[3] === 0x0B)
+        errorFlags.push('data length code');
+    if (frame.data[3] === 0x0A)
+        errorFlags.push('data section');
+    if (frame.data[3] === 0x08)
+        errorFlags.push('CRC sequence');
+    if (frame.data[3] === 0x18)
+        errorFlags.push('CRC delimiter');
+    if (frame.data[3] === 0x19)
+        errorFlags.push('ACK slot');
+    if (frame.data[3] === 0x1B)
+        errorFlags.push('ACK delimiter');
+    if (frame.data[3] === 0x1A)
+        errorFlags.push('end of frame');
+    if (frame.data[3] === 0x12)
+        errorFlags.push('intermission');
+    if (frame.can_id & (1 << 4))
+        errorFlags.push('transceiver status');
+    if (frame.data[4] === 0x04)
+        errorFlags.push('CANH no wire');
+    if (frame.data[4] === 0x05)
+        errorFlags.push('CANH short to BAT');
+    if (frame.data[4] === 0x06)
+        errorFlags.push('CANH short to VCC');
+    if (frame.data[4] === 0x07)
+        errorFlags.push('CANH short to GND');
+    if (frame.data[4] === 0x40)
+        errorFlags.push('CANL no wire');
+    if (frame.data[4] === 0x50)
+        errorFlags.push('CANL short to BAT');
+    if (frame.data[4] === 0x60)
+        errorFlags.push('CANL short to VCC');
+    if (frame.data[4] === 0x70)
+        errorFlags.push('CANL short to GND');
+    if (frame.data[4] === 0x80)
+        errorFlags.push('CANL short to CANH');
+    if (frame.can_id & (1 << 5))
+        errorFlags.push('received no ACK on transmission');
+    if (frame.can_id & (1 << 6))
+        errorFlags.push('bus off');
+    if (frame.can_id & (1 << 7))
+        errorFlags.push('bus error');
+    if (frame.can_id & (1 << 8))
+        errorFlags.push('controller restarted');
+    errorFlags.push('TX error count: ' + frame.data[6]);
+    errorFlags.push('RX error count: ' + frame.data[7]);
+    return errorFlags.join(', ');
+}
+
 class CandleDevice extends EventEmitter {
     constructor(device) {
         super();
@@ -11,7 +122,17 @@ class CandleDevice extends EventEmitter {
         this.serial_number = device.serial_number;
         this.handle = device.handle;
 
-        this.on('error', () => {});
+        this.rxErrorCount = 0;
+        this.on('error', () => {
+            this.rxErrorCount++;
+            if (this.rxErrorCount > 99) {
+                this.close();
+                console.error(`The device is shut down due to too many errors (error count: ${this.rxErrorCount})`);
+            }
+        });
+        this.on('frame', () => {
+            this.rxErrorCount = 0;
+        })
     }
 
     isOpened() {
@@ -40,7 +161,10 @@ class CandleDevice extends EventEmitter {
             while (this.isOpened()) {
                 try {
                     const frame = await addon.receive(this, 0, 1000);
-                    this.emit('frame', frame);
+                    if (frame.type & addon.FRAME_TYPE_ERR)
+                        this.emit('error', parseErrorFrame(frame));
+                    else
+                        this.emit('frame', frame);
                 } catch (error) {
                     this.emit('error', error);
                 }
