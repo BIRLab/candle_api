@@ -122,6 +122,11 @@ class CandleDevice extends EventEmitter {
         this.serial_number = device.serial_number;
         this.handle = device.handle;
 
+        const channel_info = addon.getChannelInfo(device, 0);
+        this.feature = channel_info.feature;
+        this.clock_frequency = channel_info.clock_frequency;
+        this.bit_timing_const = channel_info.bit_timing_const;
+
         this.rxErrorCount = 0;
         this.on('error', () => {
             this.rxErrorCount++;

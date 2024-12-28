@@ -12,6 +12,7 @@ public:
             InstanceMethod("isOpened", &CandleJS::IsOpened, napi_enumerable),
             InstanceMethod("openDevice", &CandleJS::OpenDevice, napi_enumerable),
             InstanceMethod("closeDevice", &CandleJS::CloseDevice, napi_enumerable),
+            InstanceMethod("getChannelInfo", &CandleJS::GetChannelInfo, napi_enumerable),
             InstanceMethod("resetChannel", &CandleJS::ResetChannel, napi_enumerable),
             InstanceMethod("startChannel", &CandleJS::StartChannel, napi_enumerable),
             InstanceMethod("setBitTiming", &CandleJS::SetBitTiming, napi_enumerable),
@@ -116,6 +117,39 @@ private:
         return info.Env().Null();
     }
 
+    Napi::Object BitTimingConstToObject(Napi::Env env, const candle_bit_timing_const& bt) {
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("tseg1_min", bt.tseg1_min);
+        obj.Set("tseg1_max", bt.tseg1_max);
+        obj.Set("tseg2_min", bt.tseg2_min);
+        obj.Set("tseg2_max", bt.tseg2_max);
+        obj.Set("sjw_max", bt.sjw_max);
+        obj.Set("brp_min", bt.brp_min);
+        obj.Set("brp_max", bt.brp_max);
+        obj.Set("brp_inc", bt.brp_inc);
+        return obj;
+    }
+
+    Napi::Value GetChannelInfo(const Napi::CallbackInfo& info) {
+        if (info.Length() != 2) {
+            throw Napi::Error::New(info.Env(), "Wrong number of arguments");
+        }
+
+        candle_device *handle = GetHandle(info);
+        uint8_t channel = info[1].As<Napi::Number>().Uint32Value();
+
+        Napi::Object obj = Napi::Object::New(info.Env());
+        obj.Set("feature", uint32_t(handle->channels[channel].feature));
+        obj.Set("clock_frequency", handle->channels[channel].clock_frequency);
+
+        Napi::Object bt_const = Napi::Object::New(info.Env());
+        bt_const.Set("nominal", BitTimingConstToObject(info.Env(), handle->channels[channel].bit_timing_const.nominal));
+        bt_const.Set("data", BitTimingConstToObject(info.Env(), handle->channels[channel].bit_timing_const.data));
+        obj.Set("bit_timing_const", bt_const);
+
+        return obj;
+    }
+
     Napi::Value ResetChannel(const Napi::CallbackInfo& info) {
         if (info.Length() != 2) {
             throw Napi::Error::New(info.Env(), "Wrong number of arguments");
@@ -210,7 +244,7 @@ private:
         return obj;
     }
 
-    static void ObjectToFrame(const Napi::Env& env, const Napi::Object& obj, candle_can_frame& frame) {
+    static void ObjectToFrame(const Napi::Object& obj, candle_can_frame& frame) {
         frame.type = static_cast<candle_frame_type>(obj.Get("type").As<Napi::Number>().Uint32Value());
         frame.can_id = obj.Get("can_id").As<Napi::Number>().Uint32Value();
         frame.can_dlc = obj.Get("can_dlc").As<Napi::Number>().Uint32Value();
@@ -257,7 +291,7 @@ private:
         uint32_t timeout = info[2].As<Napi::Number>().Uint32Value();
 
         candle_can_frame frame{};
-        ObjectToFrame(info.Env(), info[3].As<Napi::Object>(), frame);
+        ObjectToFrame(info[3].As<Napi::Object>(), frame);
         Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(info.Env());
         SendReceiveWorker<candle_send_frame>* wk = new SendReceiveWorker<candle_send_frame>(info.Env(), deferred, handle, channel, timeout, frame);
         wk->Queue();
