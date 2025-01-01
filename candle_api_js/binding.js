@@ -171,7 +171,8 @@ class CandleDevice extends EventEmitter {
                     else
                         this.emit('frame', frame);
                 } catch (error) {
-                    this.emit('error', error);
+                    if (error !== 'Timeout')
+                        this.emit('error', error);
                 }
             }
         })();
