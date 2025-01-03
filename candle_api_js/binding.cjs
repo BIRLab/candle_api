@@ -1,4 +1,4 @@
-const addon = require('bindings')('candle-js');
+const addon = require('bindings')('candle-js.node');
 const { once, EventEmitter } = require('events');
 
 function parseErrorFrame(frame) {

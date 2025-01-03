@@ -2,7 +2,8 @@
   "name": "candle-js",
   "version": "0.0.0",
   "description": "candle_api javascript wrapper",
-  "main": "./candle_api_js/binding.js",
+  "main": "./candle_api_js/binding.cjs",
+  "type": "module",
   "private": true,
   "dependencies": {
     "bindings": "~1.5.0",
@@ -11,6 +12,13 @@
   },
   "scripts": {
     "install": "cmake-js compile --CDCANDLE_API_BUILD_NODE_JS=ON",
-    "test": "node ./candle_api_js/test.js"
+    "test": "node ./candle_api_js/test.mjs"
+  },
+  "exports": {
+    "import": "./candle_api_js/binding.mjs",
+    "require": "./candle_api_js/binding.cjs"
+  },
+  "binary": {
+    "napi_versions": [6]
   }
 }

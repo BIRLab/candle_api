@@ -1,4 +1,4 @@
-const candle = require('./binding')
+import candle from './binding.mjs';
 
 // scan device
 const dev = candle.listDevice()[0];
