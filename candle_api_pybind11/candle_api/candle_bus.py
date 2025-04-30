@@ -46,7 +46,7 @@ class CandleBus(can.bus.BusABC):
 
         # Set termination.
         if termination is not None:
-            self._channel.termination = termination
+            self._channel.set_termination(termination)
 
         # Set bit timing.
         props_seg = 1
@@ -90,14 +90,14 @@ class CandleBus(can.bus.BusABC):
             )
 
         # Open the channel.
-        self._channel.start(CandleMode(
+        self._channel.start(
             fd=fd,
             loop_back=loop_back,
             listen_only=listen_only,
             triple_sample=triple_sample,
             one_shot=one_shot,
             bit_error_reporting=bit_error_reporting
-        ))
+        )
 
         super().__init__(
             channel=channel,

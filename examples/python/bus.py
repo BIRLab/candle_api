@@ -18,9 +18,7 @@ with can.Bus(interface='candle_bus', channel=0, fd=True, bitrate=1000000, data_b
     bus.send(can.Message(arbitration_id=3, is_extended_id=False, data=[i for i in range(8)]))
 
     # Send can fd message.
-    if bus._channel.feature.fd:
-        bus.send(can.Message(arbitration_id=4, is_extended_id=False, is_fd=True, bitrate_switch=True,
-                             error_state_indicator=True, data=[i for i in range(64)]))
+    bus.send(can.Message(arbitration_id=4, is_extended_id=False, is_fd=True, bitrate_switch=True, error_state_indicator=True, data=[i for i in range(64)]))
 
     # Read messages from bus.
     for message in bus:

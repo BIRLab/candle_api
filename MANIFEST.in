@@ -1,4 +1,4 @@
 include README.md LICENSE
 graft candle_api
-graft candle_api_python
+graft candle_api_pybind11
 global-include CMakeLists.txt

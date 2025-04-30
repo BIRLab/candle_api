@@ -7,7 +7,7 @@ dev = candle_api.list_device()[0]
 
 dev.open()
 ch = dev[0]
-ch.start(candle_api.CandleMode(listen_only=True, loop_back=True, fd=ch.feature.fd))
+ch.start(listen_only=True, loop_back=True, fd=ch.feature.fd)
 
 running = True
 

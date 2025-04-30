@@ -27,7 +27,7 @@ class CMakeBuild(build_ext):
         ext_dir = ext_fullpath.parent.resolve()
 
         cmake_args = [
-            "-DCANDLE_API_BUILD_PYTHON=ON",
+            "-DCANDLE_API_BUILD_PYBIND11=ON",
             f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={ext_dir}{os.sep}candle_api{os.sep}",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             "-DCMAKE_BUILD_TYPE=Release"

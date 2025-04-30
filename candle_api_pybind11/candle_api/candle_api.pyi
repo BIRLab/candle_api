@@ -1,32 +1,87 @@
-from collections.abc import Buffer
 from typing import Optional
-
-
-class CandleMode:
-    def __init__(self, listen_only: bool = False, loop_back: bool = False, triple_sample: bool = False, one_shot: bool = False, hardware_timestamp: bool = False, pad_package: bool = False, fd: bool = False, bit_error_reporting: bool = False) -> None:
-        ...
 
 
 class CandleFrameType:
     def __init__(self, rx: bool = False, extended_id: bool = False, remote_frame: bool = False, error_frame: bool = False, fd: bool = False, bitrate_switch: bool = False, error_state_indicator: bool = False) -> None:
-        self.rx = rx
-        self.extended_id = extended_id
-        self.remote_frame = remote_frame
-        self.error_frame = error_frame
-        self.fd = fd
-        self.bitrate_switch = bitrate_switch
-        self.error_state_indicator = error_state_indicator
+        ...
+
+    @property
+    def rx(self) -> bool:
+        ...
+
+    @property
+    def extended_id(self) -> bool:
+        ...
+
+    @property
+    def remote_frame(self) -> bool:
+        ...
+
+    @property
+    def error_frame(self) -> bool:
+        ...
+
+    @property
+    def fd(self) -> bool:
+        ...
+
+    @property
+    def bitrate_switch(self) -> bool:
+        ...
+
+    @property
+    def error_state_indicator(self) -> bool:
+        ...
+
+
+class CandleCanFrame:
+    def __init__(self, frame_type: CandleFrameType, can_id: int, can_dlc: int, data: bytes) -> None:
+        ...
+
+    @property
+    def frame_type(self) -> CandleFrameType:
+        ...
+
+    @property
+    def can_id(self) -> int:
+        ...
+
+    @property
+    def can_dlc(self) -> int:
+        ...
+
+    @property
+    def data(self) -> bytes:
+        ...
+
+    @property
+    def timestamp(self) -> float:
+        ...
 
 
 class CandleCanState:
-    ERROR_ACTIVE: CandleCanState
-    ERROR_WARNING: CandleCanState
-    ERROR_PASSIVE: CandleCanState
-    BUS_OFF: CandleCanState
-    STOPPED: CandleCanState
-    SLEEPING: CandleCanState
+    @property
+    def error_active(self) -> bool:
+        ...
 
-    def __eq__(self, other: CandleCanState) -> bool:
+    @property
+    def error_warning(self) -> bool:
+        ...
+
+    @property
+    def error_passive(self) -> bool:
+        ...
+
+    @property
+    def bus_off(self) -> bool:
+        ...
+
+    @property
+    def stopped(self) -> bool:
+        ...
+
+    @property
+    def sleeping(self) -> bool:
         ...
 
 
@@ -41,31 +96,6 @@ class CandleState:
 
     @property
     def tx_error_count(self) -> int:
-        ...
-
-
-class CandleCanFrame:
-    def __init__(self, frame_type: CandleFrameType, can_id: int, can_dlc: int, data: Buffer) -> None:
-        self.frame_type = frame_type
-        self.can_id = can_id
-        self.can_dlc = can_dlc
-
-    @property
-    def timestamp(self) -> float:
-        ...
-
-    @property
-    def data(self) -> bytes:
-        ...
-
-    @data.setter
-    def data(self, value: Buffer) -> None:
-        ...
-
-    def __buffer__(self, flags: int) -> memoryview:
-        ...
-
-    def __release_buffer__(self, view: memoryview) -> None:
         ...
 
 
@@ -146,8 +176,6 @@ class CandleBitTimingConst:
 
 
 class CandleChannel:
-    termination: bool
-
     @property
     def feature(self) -> CandleFeature:
         ...
@@ -168,19 +196,26 @@ class CandleChannel:
     def state(self) -> CandleState:
         ...
 
-    def reset(self) -> bool:
+    @property
+    def termination(self) -> bool:
         ...
 
-    def start(self, mode: CandleMode) -> bool:
+    def reset(self) -> None:
         ...
 
-    def set_bit_timing(self, prop_seg: int, phase_seg1: int, phase_seg2: int, sjw: int, brp: int) -> bool:
+    def start(self, listen_only: bool = False, loop_back: bool = False, triple_sample: bool = False, one_shot: bool = False, hardware_timestamp: bool = False, pad_package: bool = False, fd: bool = False, bit_error_reporting: bool = False) -> None:
         ...
 
-    def set_data_bit_timing(self, prop_seg: int, phase_seg1: int, phase_seg2: int, sjw: int, brp: int) -> bool:
+    def set_bit_timing(self, prop_seg: int, phase_seg1: int, phase_seg2: int, sjw: int, brp: int) -> None:
         ...
 
-    def send_nowait(self, frame: CandleCanFrame) -> bool:
+    def set_data_bit_timing(self, prop_seg: int, phase_seg1: int, phase_seg2: int, sjw: int, brp: int) -> None:
+        ...
+
+    def set_termination(self, enable: bool) -> None:
+        ...
+
+    def send_nowait(self, frame: CandleCanFrame) -> None:
         ...
 
     def receive_nowait(self) -> Optional[CandleCanFrame]:
@@ -241,7 +276,7 @@ class CandleDevice:
     def hardware_version(self) -> int:
         ...
 
-    def open(self) -> bool:
+    def open(self) -> None:
         ...
 
     def close(self) -> None:
