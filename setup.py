@@ -8,6 +8,14 @@ from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
 
 
+PLAT_TO_CMAKE = {
+    "win32": "Win32",
+    "win-amd64": "x64",
+    "win-arm32": "ARM",
+    "win-arm64": "ARM64",
+}
+
+
 def get_version():
     toml_file = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'pyproject.toml')
     with open(toml_file, 'r') as f:
@@ -43,7 +51,10 @@ class CMakeBuild(build_ext):
         build_args = []
 
         if self.compiler.compiler_type == "msvc":
-            cmake_args.append(f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={ext_dir}{os.sep}candle_api")
+            cmake_args += [
+                "-A", PLAT_TO_CMAKE[self.plat_name],
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={ext_dir}{os.sep}candle_api"
+            ]
             build_args += ["--config", "Release"]
 
         build_temp = Path(self.build_temp) / ext.name
