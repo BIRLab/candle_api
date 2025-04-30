@@ -355,26 +355,14 @@ public:
     }
 
     void setBitTiming(uint32_t prop_seg, uint32_t phase_seg1, uint32_t phase_seg2, uint32_t sjw, uint32_t brp) {
-        candle_bit_timing bt {
-            .prop_seg = prop_seg,
-            .phase_seg1 = phase_seg1,
-            .phase_seg2 = phase_seg2,
-            .sjw = sjw,
-            .brp = brp
-        };
+        candle_bit_timing bt = { prop_seg, phase_seg1, phase_seg2, sjw, brp };
 
         if (!candle_set_bit_timing(device_, index_, &bt))
             throw std::runtime_error("Cannot set bit timing");
     }
 
     void setDataBitTiming(uint32_t prop_seg, uint32_t phase_seg1, uint32_t phase_seg2, uint32_t sjw, uint32_t brp) {
-        candle_bit_timing bt {
-                .prop_seg = prop_seg,
-                .phase_seg1 = phase_seg1,
-                .phase_seg2 = phase_seg2,
-                .sjw = sjw,
-                .brp = brp
-        };
+        candle_bit_timing bt = { prop_seg, phase_seg1, phase_seg2, sjw, brp };
 
         if (!candle_set_data_bit_timing(device_, index_, &bt))
             throw std::runtime_error("Cannot set data bit timing");

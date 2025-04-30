@@ -71,7 +71,7 @@ static void after_libusb_close_hook(void) {
     }
 }
 
-static void receive_bulk_callback(struct libusb_transfer *transfer) {
+static void LIBUSB_CALL receive_bulk_callback(struct libusb_transfer *transfer) {
     struct candle_device_handle *handle = transfer->user_data;
     struct gs_host_frame *hf = (struct gs_host_frame *)transfer->buffer;
     uint8_t ch = hf->channel;
@@ -111,7 +111,7 @@ static void receive_bulk_callback(struct libusb_transfer *transfer) {
     }
 }
 
-static void transmit_bulk_callback(struct libusb_transfer *transfer) {
+static void LIBUSB_CALL transmit_bulk_callback(struct libusb_transfer *transfer) {
     struct candle_device_handle *handle = transfer->user_data;
 
     switch (transfer->status) {
