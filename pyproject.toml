@@ -1,7 +1,31 @@
 [project]
 name = "candle_api"
 version = "0.0.3"
+readme = "README.md"
 requires-python = ">=3.8"
+license = {file = "LICENSE"}
+authors = [
+    { name = "Yu He", email = "auheyu@mail.scut.edu.cn" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: C",
+    "Programming Language :: C++",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Typing :: Typed"
+]
+
+[project.urls]
+Documentation = "https://github.com/BIRLab/candle_api#readme"
+Issues = "https://github.com/BIRLab/candle_api/issues"
+Source = "https://github.com/BIRLab/candle_api"
 
 [project.optional-dependencies]
 can = ["python-can"]
