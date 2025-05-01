@@ -1,6 +1,6 @@
 [project]
 name = "candle_api"
-version = "0.0.3"
+version = "0.0.4"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {file = "LICENSE"}
