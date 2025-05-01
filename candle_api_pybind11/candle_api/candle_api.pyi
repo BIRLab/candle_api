@@ -1,4 +1,5 @@
 from typing import Optional
+from collections.abc import Buffer
 
 
 class CandleFrameType:
@@ -35,7 +36,13 @@ class CandleFrameType:
 
 
 class CandleCanFrame:
-    def __init__(self, frame_type: CandleFrameType, can_id: int, can_dlc: int, data: bytes) -> None:
+    def __init__(self, frame_type: CandleFrameType, can_id: int, can_dlc: int, data: Buffer) -> None:
+        ...
+
+    def __buffer__(self, flags: int) -> memoryview:
+        ...
+
+    def __release_buffer__(self, view: memoryview) -> None:
         ...
 
     @property
@@ -48,6 +55,10 @@ class CandleCanFrame:
 
     @property
     def can_dlc(self) -> int:
+        ...
+
+    @property
+    def size(self) -> int:
         ...
 
     @property

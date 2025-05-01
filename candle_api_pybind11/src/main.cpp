@@ -101,21 +101,22 @@ class CandleCanFrame {
 public:
     explicit CandleCanFrame(const candle_can_frame& frame): frame_(frame) { }
 
-    CandleCanFrame(const CandleFrameType& frame_type, uint32_t can_id, uint8_t can_dlc, const py::bytes& data): frame_() {
+    CandleCanFrame(const CandleFrameType& frame_type, uint32_t can_id, uint8_t can_dlc, const py::buffer& data): frame_() {
         if (can_dlc > 15)
             throw py::value_error("DLC can only be between 0 and 15");
-        size_t data_length = dlc2len[can_dlc];
+        size_t required_data_len = dlc2len[can_dlc];
 
-        std::string_view buffer = data;
+        py::buffer_info info = data.request();
+        size_t total_data_len = info.itemsize * info.size;
 
-        if (buffer.size() < data_length)
+        if (total_data_len < required_data_len)
             throw py::value_error("Data length is smaller than can dlc");
 
         frame_.type = frame_type.ft_;
         frame_.can_id = can_id;
         frame_.can_dlc = can_dlc;
 
-        std::memcpy(frame_.data, buffer.data(), data_length);
+        std::memcpy(frame_.data, info.ptr, required_data_len);
     }
 
     CandleFrameType getFrameType() {
@@ -134,8 +135,23 @@ public:
         return { reinterpret_cast<char*>(frame_.data), dlc2len[frame_.can_dlc] };
     }
 
+    size_t getSize() {
+        return dlc2len[frame_.can_dlc];
+    }
+
     uint32_t getTimestamp() {
         return frame_.timestamp_us;
+    }
+
+    py::buffer_info getBuffer() {
+        return py::buffer_info(
+            frame_.data,
+            1,
+            py::format_descriptor<uint8_t>::format(),
+            1,
+            { sizeof(frame_.data) },
+            { 1 }
+        );
     }
 
 private:
@@ -374,7 +390,7 @@ public:
     }
 
     std::optional<CandleCanFrame> receiveNowait() {
-        static candle_can_frame frame;
+        candle_can_frame frame;
         if (!candle_receive_frame_nowait(device_, index_, &frame))
             return std::nullopt;
         return CandleCanFrame(frame);
@@ -510,13 +526,15 @@ PYBIND11_MODULE(candle_api, m) {
         .def_property_readonly("bitrate_switch", &CandleFrameType::getBitrateSwitch)
         .def_property_readonly("error_state_indicator", &CandleFrameType::getErrorStateIndicator);
 
-    py::class_<CandleCanFrame>(m, "CandleCanFrame")
-        .def(py::init<const CandleFrameType&, uint32_t, uint8_t, const py::bytes&>())
+    py::class_<CandleCanFrame>(m, "CandleCanFrame", py::buffer_protocol())
+        .def(py::init<const CandleFrameType&, uint32_t, uint8_t, const py::buffer&>())
         .def_property_readonly("frame_type", &CandleCanFrame::getFrameType)
         .def_property_readonly("can_id", &CandleCanFrame::getCanId)
         .def_property_readonly("can_dlc", &CandleCanFrame::getCanDLC)
+        .def_property_readonly("size", &CandleCanFrame::getSize)
         .def_property_readonly("data", &CandleCanFrame::getData)
-        .def_property_readonly("timestamp", &CandleCanFrame::getTimestamp);
+        .def_property_readonly("timestamp", &CandleCanFrame::getTimestamp)
+        .def_buffer(&CandleCanFrame::getBuffer);
 
     py::class_<CandleFeature>(m, "CandleFeature")
         .def_property_readonly("listen_only", &CandleFeature::getListenOnly)

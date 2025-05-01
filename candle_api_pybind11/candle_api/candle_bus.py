@@ -1,6 +1,6 @@
 from typing import Optional, Tuple
 import can
-from candle_api.candle_api import *
+import candle_api.candle_api as api
 
 
 ISO_DLC = (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64)
@@ -16,7 +16,7 @@ class CandleBus(can.bus.BusABC):
                  manufacture: Optional[str] = None, product: Optional[str] = None,
                  serial_number: Optional[str] = None, **kwargs) -> None:
 
-        for dev in list_device():
+        for dev in api.list_device():
             if vid is not None and dev.vendor_id != vid:
                 continue
             if pid is not None and dev.product_id != pid:
@@ -124,7 +124,7 @@ class CandleBus(can.bus.BusABC):
                 is_remote_frame=frame.frame_type.remote_frame,
                 is_error_frame=frame.frame_type.error_frame,
                 channel=self._channel_number,
-                dlc=len(frame.data),   # https://github.com/hardbyte/python-can/issues/749
+                dlc=frame.size,   # https://github.com/hardbyte/python-can/issues/749
                 data=frame.data,
                 is_fd=frame.frame_type.fd,
                 is_rx=frame.frame_type.rx,
@@ -138,8 +138,8 @@ class CandleBus(can.bus.BusABC):
         if timeout is None:
             timeout = 1.0
 
-        frame = CandleCanFrame(
-            CandleFrameType(
+        frame = api.CandleCanFrame(
+            api.CandleFrameType(
                 rx=msg.is_rx,
                 extended_id=msg.is_extended_id,
                 remote_frame=msg.is_remote_frame,
