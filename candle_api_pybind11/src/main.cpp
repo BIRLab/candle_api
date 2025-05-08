@@ -527,7 +527,7 @@ PYBIND11_MODULE(candle_api, m) {
         .def_property_readonly("error_state_indicator", &CandleFrameType::getErrorStateIndicator);
 
     py::class_<CandleCanFrame>(m, "CandleCanFrame", py::buffer_protocol())
-        .def(py::init<const CandleFrameType&, uint32_t, uint8_t, const py::buffer&>())
+        .def(py::init<const CandleFrameType&, uint32_t, uint8_t, const py::buffer&>(), py::arg("frame_type"), py::arg("can_id"), py::arg("can_dlc"), py::arg("data"))
         .def_property_readonly("frame_type", &CandleCanFrame::getFrameType)
         .def_property_readonly("can_id", &CandleCanFrame::getCanId)
         .def_property_readonly("can_dlc", &CandleCanFrame::getCanDLC)

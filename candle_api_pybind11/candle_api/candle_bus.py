@@ -1,6 +1,6 @@
 from typing import Optional, Tuple
 import can
-import candle_api.candle_api as api
+import candle_api as api
 
 
 ISO_DLC = (0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64)
