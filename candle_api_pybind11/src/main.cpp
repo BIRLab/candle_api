@@ -513,7 +513,7 @@ std::vector<CandleDevice> list_device() {
     return list;
 }
 
-PYBIND11_MODULE(candle_api, m) {
+PYBIND11_MODULE(bindings, m) {
     static CandleContext ctx;
 
     py::class_<CandleFrameType>(m, "CandleFrameType")

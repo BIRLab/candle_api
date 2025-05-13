@@ -72,6 +72,6 @@ class CMakeBuild(build_ext):
 setup(
     name="candle_api",
     version=get_version(),
-    ext_modules=[CMakeExtension("candle_api.candle_api")],
+    ext_modules=[CMakeExtension("candle_api.bindings")],
     cmdclass={"build_ext": CMakeBuild}
 )
