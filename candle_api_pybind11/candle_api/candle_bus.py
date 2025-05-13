@@ -125,7 +125,7 @@ class CandleBus(can.bus.BusABC):
                 is_error_frame=frame.frame_type.error_frame,
                 channel=self._channel_number,
                 dlc=frame.size,   # https://github.com/hardbyte/python-can/issues/749
-                data=frame.data,
+                data=bytearray(frame),
                 is_fd=frame.frame_type.fd,
                 is_rx=frame.frame_type.rx,
                 bitrate_switch=frame.frame_type.bitrate_switch,

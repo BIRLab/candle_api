@@ -149,7 +149,7 @@ public:
             1,
             py::format_descriptor<uint8_t>::format(),
             1,
-            { sizeof(frame_.data) },
+            { dlc2len[frame_.can_dlc] },
             { 1 }
         );
     }
