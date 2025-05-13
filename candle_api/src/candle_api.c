@@ -521,7 +521,7 @@ handle_error:
     *size = list_count_nodes(&device_list);
 
     // prepare output device list (NULL terminated)
-    struct candle_device **output_device_list = calloc(sizeof(struct candle_device *), *size + 1);
+    struct candle_device **output_device_list = calloc(*size + 1, sizeof(struct candle_device *));
 
     // cannot alloc memory
     if (output_device_list == NULL) {
