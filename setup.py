@@ -36,7 +36,7 @@ class CMakeBuild(build_ext):
 
         cmake_args = [
             "-DCANDLE_API_BUILD_PYBIND11=ON",
-            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={ext_dir}{os.sep}candle_api{os.sep}",
+            f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY={ext_dir}{os.sep}",
             f"-DPYTHON_EXECUTABLE={sys.executable}",
             "-DCMAKE_BUILD_TYPE=Release"
         ]
@@ -53,7 +53,7 @@ class CMakeBuild(build_ext):
         if self.compiler.compiler_type == "msvc":
             cmake_args += [
                 "-A", PLAT_TO_CMAKE[self.plat_name],
-                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={ext_dir}{os.sep}candle_api"
+                f"-DCMAKE_LIBRARY_OUTPUT_DIRECTORY_RELEASE={ext_dir}{os.sep}"
             ]
             build_args += ["--config", "Release"]
 
@@ -72,6 +72,6 @@ class CMakeBuild(build_ext):
 setup(
     name="candle_api",
     version=get_version(),
-    ext_modules=[CMakeExtension("candle_api")],
+    ext_modules=[CMakeExtension("candle_api.candle_api")],
     cmdclass={"build_ext": CMakeBuild}
 )
