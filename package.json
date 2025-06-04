@@ -1,6 +1,6 @@
 {
   "name": "candle-js",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "candle_api javascript wrapper",
   "main": "./candle_api_js/binding.cjs",
   "type": "module",
