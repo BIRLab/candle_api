@@ -4,6 +4,7 @@
 #include "list.h"
 #include "fifo.h"
 #include "gs_usb_def.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdatomic.h>
@@ -336,7 +337,14 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
                 // open usb device to request necessary information
                 struct libusb_device_handle *dev_handle;
                 rc = libusb_open(dev, &dev_handle);
-                if (rc != LIBUSB_SUCCESS) goto handle_error;
+
+                // cannot open device
+                if (rc != LIBUSB_SUCCESS) {
+                    if (rc == LIBUSB_ERROR_ACCESS) {
+                        fprintf(stderr, "Found candle usb device %04x:%04x, but access denied. Please check permissions.\n", desc.idVendor, desc.idProduct);
+                    }
+                    continue;
+                };
 
                 // libusb open close hook
                 after_libusb_open_hook();
