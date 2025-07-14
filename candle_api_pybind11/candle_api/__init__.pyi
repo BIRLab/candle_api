@@ -66,6 +66,10 @@ class CandleCanFrame:
         ...
 
     @property
+    def timestamp_us(self) -> int:
+        ...
+
+    @property
     def timestamp(self) -> float:
         ...
 

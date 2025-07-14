@@ -139,8 +139,12 @@ public:
         return dlc2len[frame_.can_dlc];
     }
 
-    uint32_t getTimestamp() {
+    uint32_t getTimestampUs() {
         return frame_.timestamp_us;
+    }
+
+    double getTimestamp() {
+        return frame_.timestamp_us / 1e6;
     }
 
     py::buffer_info getBuffer() {
@@ -533,6 +537,7 @@ PYBIND11_MODULE(bindings, m) {
         .def_property_readonly("can_dlc", &CandleCanFrame::getCanDLC)
         .def_property_readonly("size", &CandleCanFrame::getSize)
         .def_property_readonly("data", &CandleCanFrame::getData)
+        .def_property_readonly("timestamp_us", &CandleCanFrame::getTimestampUs)
         .def_property_readonly("timestamp", &CandleCanFrame::getTimestamp)
         .def_buffer(&CandleCanFrame::getBuffer);
 
