@@ -161,9 +161,3 @@ class CandleBus(can.bus.BusABC):
     def shutdown(self):
         self._channel.reset()
         super().shutdown()
-
-    @property
-    def protocol(self) -> can.CanProtocol:
-        if self._channel.feature.fd:
-            return can.CanProtocol.CAN_FD
-        return can.CanProtocol.CAN_20
