@@ -26,12 +26,6 @@ Documentation = "https://github.com/BIRLab/candle_api#readme"
 Issues = "https://github.com/BIRLab/candle_api/issues"
 Source = "https://github.com/BIRLab/candle_api"
 
-[project.optional-dependencies]
-can = ["python-can"]
-
-[project.entry-points."can.interface"]
-candle_bus = "candle_api.candle_bus:CandleBus"
-
 [build-system]
 requires = [
     "setuptools",
