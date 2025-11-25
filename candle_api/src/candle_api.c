@@ -319,6 +319,7 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
         // check vid pid
         if ((desc.idVendor == 0x1d50 && desc.idProduct == 0x606f) ||
             (desc.idVendor == 0x1209 && desc.idProduct == 0x2323) ||
+            (desc.idVendor == 0x1209 && desc.idProduct == 0xca01) ||
             (desc.idVendor == 0x1cd2 && desc.idProduct == 0x606f) ||
             (desc.idVendor == 0x16d0 && desc.idProduct == 0x10b8) ||
             (desc.idVendor == 0x16d0 && desc.idProduct == 0x0f30)) {
