@@ -1,3 +1,6 @@
+[submodule "candle_api/libusb-cmake"]
+	path = candle_api/libusb-cmake
+	url = https://github.com/libusb/libusb-cmake.git
 [submodule "candle_api_pybind11/pybind11"]
 	path = candle_api_pybind11/pybind11
 	url = https://github.com/pybind/pybind11.git
