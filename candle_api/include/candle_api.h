@@ -134,6 +134,7 @@ bool candle_send_frame_nowait(struct candle_device *device, uint8_t channel, str
 bool candle_send_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
 bool candle_receive_frame_nowait(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame);
 bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct candle_can_frame *frame, uint32_t milliseconds);
+bool candle_wait_for_frame(struct candle_device *device, uint32_t milliseconds);
 
 #ifdef __cplusplus
 }

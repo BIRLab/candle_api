@@ -297,6 +297,9 @@ class CandleDevice:
     def close(self) -> None:
         ...
 
+    def wait_for_frame(self) -> bool:
+        ...
+
 
 def list_device() -> list[CandleDevice]:
     ...

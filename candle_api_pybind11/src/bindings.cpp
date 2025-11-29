@@ -498,6 +498,11 @@ public:
         else
             throw py::index_error();
     }
+
+    bool waitForFrame(float timeout) {
+        py::gil_scoped_release release;
+        return candle_wait_for_frame(device_, (uint32_t)(1000 * timeout));
+    }
 };
 
 std::vector<CandleDevice> list_device() {
@@ -607,7 +612,8 @@ PYBIND11_MODULE(bindings, m) {
         .def("open", &CandleDevice::open)
         .def("close", &CandleDevice::close)
         .def("__getitem__", &CandleDevice::getChannel)
-        .def("__len__", &CandleDevice::getChannelCount);
+        .def("__len__", &CandleDevice::getChannelCount)
+        .def("wait_for_frame", &CandleDevice::waitForFrame);
 
     m.def("list_device", list_device);
 }

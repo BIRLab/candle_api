@@ -37,6 +37,8 @@ struct candle_device_handle {
     size_t rx_size;
     uint8_t in_ep;
     uint8_t out_ep;
+    cnd_t rx_cnd;
+    mtx_t rx_cond_mtx;
     struct candle_channel_handle channels[];
 };
 
@@ -90,9 +92,16 @@ static void LIBUSB_CALL receive_bulk_callback(struct libusb_transfer *transfer) 
 
                 // put in fifo
                 fifo_put(handle->channels[ch].rx_fifo, hf);
+
+                // channel rx notification
                 mtx_lock(&handle->channels[ch].rx_cond_mtx);
                 cnd_signal(&handle->channels[ch].rx_cnd);
                 mtx_unlock(&handle->channels[ch].rx_cond_mtx);
+
+                // device rx notification
+                mtx_lock(&handle->rx_cond_mtx);
+                cnd_signal(&handle->rx_cnd);
+                mtx_unlock(&handle->rx_cond_mtx);
             }
             libusb_submit_transfer(transfer);
             break;
@@ -155,6 +164,8 @@ static void free_device(struct candle_device_handle* handle) {
         cnd_destroy(&handle->channels[i].echo_id_cnd);
         mtx_destroy(&handle->channels[i].echo_id_cond_mtx);
     }
+    cnd_destroy(&handle->rx_cnd);
+    mtx_destroy(&handle->rx_cond_mtx);
     libusb_unref_device(handle->usb_device);
     free(handle->device);
     free(handle);
@@ -492,6 +503,8 @@ bool candle_get_device_list(struct candle_device ***devices, size_t *size) {
                 handle->rx_size = rx_size;
                 handle->in_ep = in_ep;
                 handle->out_ep = out_ep;
+                cnd_init(&handle->rx_cnd);
+                mtx_init(&handle->rx_cond_mtx, mtx_plain);
 
                 // create internal channel handle
                 for (int j = 0; j < channel_count; ++j) {
@@ -1054,5 +1067,17 @@ bool candle_receive_frame(struct candle_device *device, uint8_t channel, struct 
     mtx_unlock(&handle->channels[channel].rx_cond_mtx);
 
     if (r) convert_frame(hf, frame, handle->channels[channel].mode & CANDLE_MODE_HW_TIMESTAMP);
+    return r;
+}
+
+bool candle_wait_for_frame(struct candle_device *device, uint32_t milliseconds) {
+    struct candle_device_handle *handle = device->handle;
+
+    struct timespec ts;
+    milliseconds_to_timespec(milliseconds, &ts);
+
+    mtx_lock(&handle->rx_cond_mtx);
+    bool r = cnd_timedwait(&handle->rx_cnd, &handle->rx_cond_mtx, &ts) == thrd_success;
+    mtx_unlock(&handle->rx_cond_mtx);
     return r;
 }
