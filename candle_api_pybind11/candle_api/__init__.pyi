@@ -297,7 +297,7 @@ class CandleDevice:
     def close(self) -> None:
         ...
 
-    def wait_for_frame(self) -> bool:
+    def wait_for_frame(self, timeout: float) -> bool:
         ...
 
 
