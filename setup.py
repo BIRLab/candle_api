@@ -47,6 +47,8 @@ class CMakeBuild(build_ext):
                 libc_ver = tuple(map(int, libc_ver.split('.')))
                 if libc_ver < (2, 28):
                     cmake_args.append("-DCANDLE_API_TINYCTHREADS=ON")
+        elif platform.system() == 'Darwin':
+            cmake_args.append("-DCANDLE_API_TINYCTHREADS=ON")
 
         build_args = []
 

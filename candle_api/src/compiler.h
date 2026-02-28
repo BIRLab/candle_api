@@ -6,6 +6,8 @@
 #if defined(_MSC_VER)
 #define typeof __typeof__
 #define alloca _alloca
+#else
+#include <alloca.h>
 #endif
 
 #if defined(__MINGW32__) || defined(__MINGW64__)
