@@ -41,9 +41,11 @@ namespaces = false
 [tool.cibuildwheel]
 build-frontend = "build"
 skip = [
-    "*-musllinux*",
-    "pp*",
+    "*-musllinux*"
 ]
 
 [tool.cibuildwheel.linux]
-before-build = "yum -y install libudev-devel"
+before-build = "dnf -y install libudev-devel"
+
+[tool.cibuildwheel.macos]
+repair-wheel-command = ""
